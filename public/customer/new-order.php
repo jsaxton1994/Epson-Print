@@ -107,12 +107,13 @@ if (is_post()) {
             : $count . ' photos are in the queue.')
             . ' You can add more photos to this order in batches of ' . $batchLimit . ' — up to ' . MAX_PHOTOS_PER_ORDER . ' in total.');
         redirect('customer/order.php?id=' . $orderId);
-    } catch (RuntimeException $e) {
+    } catch (Throwable $e) {
         if ($orderId > 0) {
             db_query('DELETE FROM orders WHERE id = ?', [$orderId]);
         }
 
-        abort_upload($e->getMessage(), $back);
+        error_log('[PrintFree] new order failed: ' . get_class($e) . ': ' . $e->getMessage());
+        abort_upload(get_class($e) . ': ' . $e->getMessage(), $back);
     }
 }
 

@@ -104,14 +104,15 @@ try {
 
     flash('success', 'Added ' . $added . ' photo' . ($added === 1 ? '' : 's') . '. This order now has '
         . $total . ' of ' . MAX_PHOTOS_PER_ORDER . '.');
-} catch (RuntimeException $e) {
+} catch (Throwable $e) {
     // Undo a partially inserted batch so it can be retried cleanly.
     if (!empty($inserted)) {
         $placeholders = implode(', ', array_fill(0, count($inserted), '?'));
         db_query('DELETE FROM order_photos WHERE id IN (' . $placeholders . ')', $inserted);
     }
 
-    abort_upload($e->getMessage(), $back);
+    error_log('[PrintFree] add photos failed: ' . get_class($e) . ': ' . $e->getMessage());
+    abort_upload(get_class($e) . ': ' . $e->getMessage(), $back);
 }
 
 redirect($back);
