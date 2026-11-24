@@ -1,0 +1,18 @@
+# PrintFree — Apache configuration
+Options -Indexes
+DirectoryIndex public/index.php
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Never serve raw database dumps or dotfiles.
+<FilesMatch "\.(sql|sqlite|log|md)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
