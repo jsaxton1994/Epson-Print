@@ -78,34 +78,6 @@ site_head('Sign in', ['active' => '']);
         </div>
 
         <aside class="auth-side reveal reveal-delay-1">
-            <span class="eyebrow light">Demo accounts</span>
-            <h2>Try it in one click</h2>
-            <p>The demo data is already installed. Pick a role and you are signed in — no typing needed.</p>
-
-            <form class="demo-card" method="post" action="">
-                <?= csrf_field() ?>
-                <input type="hidden" name="email" value="customer@me.com">
-                <input type="hidden" name="password" value="123">
-                <div>
-                    <span class="demo-role">Customer</span>
-                    <strong>customer@me.com</strong>
-                    <span class="mono">password 123</span>
-                </div>
-                <button class="btn btn-light btn-sm" type="submit"><?= icon('arrow-right', 'btn-icon') ?> Log in</button>
-            </form>
-
-            <form class="demo-card" method="post" action="">
-                <?= csrf_field() ?>
-                <input type="hidden" name="email" value="admin@me.com">
-                <input type="hidden" name="password" value="123">
-                <div>
-                    <span class="demo-role">Administrator</span>
-                    <strong>admin@me.com</strong>
-                    <span class="mono">password 123</span>
-                </div>
-                <button class="btn btn-light btn-sm" type="submit"><?= icon('arrow-right', 'btn-icon') ?> Log in</button>
-            </form>
-
             <ul class="auth-points">
                 <li><?= icon('shield') ?><span>No card details, credits or page allowance</span></li>
                 <li><?= icon('image') ?><span>Your photos stay private to you and the admins</span></li>
