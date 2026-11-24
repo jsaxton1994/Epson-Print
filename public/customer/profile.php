@@ -114,37 +114,39 @@ app_start('customer', 'profile', 'Profile', 'Your details, password and account 
 
                     <button class="btn btn-primary" type="submit">Save details</button>
                 </form>
+            </div>
+        </section>
 
-                <div class="settings-section">
-                    <h3>Change password</h3>
-                    <p>Use at least 6 characters. You will stay signed in on this device.</p>
+        <section class="panel">
+            <div class="panel-head"><h3>Change password</h3></div>
+            <div class="panel-body">
+                <p class="help">Use at least 6 characters. You will stay signed in on this device.</p>
 
-                    <form method="post" data-submit-once>
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="password">
+                <form method="post" data-submit-once>
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="password">
 
+                    <div class="field">
+                        <label for="current_password">Current password</label>
+                        <input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required>
+                        <?php if (isset($errors['current_password'])): ?><p class="field-error"><?= e($errors['current_password']) ?></p><?php endif; ?>
+                    </div>
+
+                    <div class="field-row">
                         <div class="field">
-                            <label for="current_password">Current password</label>
-                            <input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required>
-                            <?php if (isset($errors['current_password'])): ?><p class="field-error"><?= e($errors['current_password']) ?></p><?php endif; ?>
+                            <label for="new_password">New password</label>
+                            <input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" required>
+                            <?php if (isset($errors['new_password'])): ?><p class="field-error"><?= e($errors['new_password']) ?></p><?php endif; ?>
                         </div>
-
-                        <div class="field-row">
-                            <div class="field">
-                                <label for="new_password">New password</label>
-                                <input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password" required>
-                                <?php if (isset($errors['new_password'])): ?><p class="field-error"><?= e($errors['new_password']) ?></p><?php endif; ?>
-                            </div>
-                            <div class="field">
-                                <label for="new_password_confirm">Confirm new password</label>
-                                <input class="input" type="password" id="new_password_confirm" name="new_password_confirm" autocomplete="new-password" required>
-                                <?php if (isset($errors['new_password_confirm'])): ?><p class="field-error"><?= e($errors['new_password_confirm']) ?></p><?php endif; ?>
-                            </div>
+                        <div class="field">
+                            <label for="new_password_confirm">Confirm new password</label>
+                            <input class="input" type="password" id="new_password_confirm" name="new_password_confirm" autocomplete="new-password" required>
+                            <?php if (isset($errors['new_password_confirm'])): ?><p class="field-error"><?= e($errors['new_password_confirm']) ?></p><?php endif; ?>
                         </div>
+                    </div>
 
-                        <button class="btn btn-soft" type="submit">Update password</button>
-                    </form>
-                </div>
+                    <button class="btn btn-soft" type="submit">Update password</button>
+                </form>
             </div>
         </section>
     </div>
