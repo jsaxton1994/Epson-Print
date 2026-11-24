@@ -29,8 +29,11 @@ if (!is_post()) {
 
 if (post_request_too_large()) {
     $serverLimit = ini_bytes((string) ini_get('post_max_size'));
-    flash('error', 'That batch is larger than this server accepts in one request (' . human_size($serverLimit) . '). Add fewer or smaller photos.');
-    redirect($back);
+    abort_upload(
+        'That batch is larger than this server accepts in one request (' . human_size($serverLimit)
+        . '). Add fewer or smaller photos.',
+        $back
+    );
 }
 
 verify_csrf();
@@ -44,23 +47,19 @@ $limits       = upload_limits();
 $maxFiles     = min(MAX_PHOTOS_PER_BATCH, $remaining, $limits['max_files']);
 
 if ($order['status'] !== 'pending') {
-    flash('error', 'Photos can only be added while the order is still waiting in the queue.');
-    redirect($back);
+    abort_upload('Photos can only be added while the order is still waiting in the queue.', $back);
 }
 
 if ($remaining <= 0) {
-    flash('info', 'This order already has the maximum of ' . MAX_PHOTOS_PER_ORDER . ' photos. Start a new order for more.');
-    redirect($back);
+    abort_upload('This order already has the maximum of ' . MAX_PHOTOS_PER_ORDER . ' photos. Start a new order for more.', $back);
 }
 
 if ($storageLeft !== null && $storageLeft <= 0) {
-    flash('error', 'This order has reached its ' . MAX_ORDER_STORAGE_MB . ' MB storage limit. Start a new order for more photos.');
-    redirect($back);
+    abort_upload('This order has reached its ' . human_size(MAX_ORDER_STORAGE_MB * 1024 * 1024) . ' storage limit. Start a new order for more photos.', $back);
 }
 
 if ($maxFiles <= 0) {
-    flash('error', 'This server does not currently accept photo uploads.');
-    redirect($back);
+    abort_upload('This server does not currently accept photo uploads.', $back);
 }
 
 try {
@@ -94,6 +93,15 @@ try {
         $user['name']
     );
 
+    if (is_ajax_upload()) {
+        upload_json([
+            'ok'       => true,
+            'order_id' => (int) $order['id'],
+            'added'    => $added,
+            'total'    => $total,
+        ]);
+    }
+
     flash('success', 'Added ' . $added . ' photo' . ($added === 1 ? '' : 's') . '. This order now has '
         . $total . ' of ' . MAX_PHOTOS_PER_ORDER . '.');
 } catch (RuntimeException $e) {
@@ -103,7 +111,7 @@ try {
         db_query('DELETE FROM order_photos WHERE id IN (' . $placeholders . ')', $inserted);
     }
 
-    flash('error', $e->getMessage());
+    abort_upload($e->getMessage(), $back);
 }
 
 redirect($back);

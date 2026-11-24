@@ -38,9 +38,9 @@
         const grid = zone.querySelector("[data-photo-grid]");
         const list = zone.querySelector("[data-photo-list]");
         const maxBytes = Number(zone.dataset.maxBytes) || 10 * 1024 * 1024;
-        const maxTotalBytes = Number(zone.dataset.maxTotalBytes) || 0;
         const multi = zone.hasAttribute("data-multi");
         const maxFiles = multi ? (Number(zone.dataset.maxFiles) || 10) : 1;
+        const batchSize = Math.max(1, Number(zone.dataset.batchSize) || 10);
         let objectUrls = [];
 
         if (!input) return;
@@ -54,9 +54,9 @@
 
         const isPhoto = (file) => file.type === "image/jpeg" || file.type === "image/png" || /\.(jpe?g|png)$/i.test(file.name);
 
-        const invalidate = (message) => {
+        const invalidate = (message, clear = true) => {
             window.alert(message);
-            input.value = "";
+            if (clear) input.value = "";
             render();
         };
 
@@ -67,7 +67,8 @@
 
             if (grid) {
                 grid.innerHTML = "";
-                files.forEach((file) => {
+                // Preview only the first few; a 500-photo selection must stay light.
+                files.slice(0, 12).forEach((file) => {
                     const url = URL.createObjectURL(file);
                     objectUrls.push(url);
                     const img = document.createElement("img");
@@ -75,15 +76,26 @@
                     img.alt = "";
                     grid.appendChild(img);
                 });
+                if (files.length > 12) {
+                    const more = document.createElement("span");
+                    more.className = "dropzone-more";
+                    more.textContent = `+${files.length - 12}`;
+                    grid.appendChild(more);
+                }
             }
 
             if (list) {
                 list.innerHTML = "";
-                files.forEach((file, index) => {
+                files.slice(0, 40).forEach((file, index) => {
                     const row = document.createElement("span");
                     row.textContent = `${index + 1}. ${file.name} · ${humanSize(file.size)}`;
                     list.appendChild(row);
                 });
+                if (files.length > 40) {
+                    const row = document.createElement("span");
+                    row.textContent = `…and ${files.length - 40} more`;
+                    list.appendChild(row);
+                }
             }
 
             zone.classList.toggle("has-file", files.length > 0);
@@ -92,7 +104,7 @@
                 if (titleEl) titleEl.textContent = multi ? "Drop your photos here" : "Drop your photo here";
                 if (hintEl) {
                     hintEl.textContent = multi
-                        ? `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB each, ${maxFiles} photos per batch`
+                        ? `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${maxFiles}; uploaded ${batchSize} at a time.`
                         : `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB`;
                 }
                 nameEls.forEach((element) => {
@@ -102,11 +114,13 @@
                 return;
             }
 
+            const batches = Math.ceil(files.length / batchSize);
+
             if (titleEl) {
                 titleEl.textContent = files.length === 1 ? "Photo selected" : `${files.length} photos selected`;
             }
             if (hintEl) {
-                hintEl.textContent = `${files.length} of ${maxFiles} · ${humanSize(total)} total · ready to upload`;
+                hintEl.textContent = `${files.length} of ${maxFiles} · ${humanSize(total)} total · uploads in ${batches} batch${batches === 1 ? "" : "es"}`;
             }
             nameEls.forEach((element) => {
                 element.textContent = files.length === 1 ? files[0].name : `${files.length} photos selected`;
@@ -114,7 +128,7 @@
             setSummary("photos", `${files.length} of ${maxFiles}`);
         };
 
-        const accept = (files) => {
+        const accept = (files, append = false) => {
             const incoming = Array.from(files || []);
 
             if (incoming.length === 0) {
@@ -122,37 +136,35 @@
                 return;
             }
 
-            if (incoming.length > maxFiles) {
-                invalidate(`Please choose no more than ${maxFiles} photos in one batch.`);
-                return;
+            const combined = multi ? [...(append ? selected() : []), ...incoming] : incoming.slice(0, 1);
+            const seen = new Set();
+            const unique = combined.filter((file) => {
+                const key = `${file.name}:${file.size}:${file.lastModified}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            let chosen = unique;
+            if (unique.length > maxFiles) {
+                chosen = unique.slice(0, maxFiles);
+                window.alert(`Only ${maxFiles} photos can be added here. The first ${maxFiles} are selected.`);
             }
 
-            for (const file of incoming) {
+            for (const file of chosen) {
                 if (!isPhoto(file)) {
-                    invalidate("Please choose JPG or PNG photos only. Other formats need converting first.");
+                    invalidate("Please choose JPG or PNG photos only. Other formats need converting first.", !append);
                     return;
                 }
                 if (file.size > maxBytes) {
-                    invalidate(`Please keep each photo under ${Math.round(maxBytes / 1048576)} MB.`);
+                    invalidate(`Please keep each photo under ${Math.round(maxBytes / 1048576)} MB.`, !append);
                     return;
                 }
-            }
-
-            const combined = multi ? [...selected(), ...incoming] : incoming.slice(0, 1);
-            if (combined.length > maxFiles) {
-                invalidate(`Please choose no more than ${maxFiles} photos in one batch.`);
-                return;
-            }
-
-            const combinedBytes = combined.reduce((sum, file) => sum + file.size, 0);
-            if (maxTotalBytes > 0 && combinedBytes > maxTotalBytes) {
-                invalidate(`This batch is ${humanSize(combinedBytes)}, but the server accepts up to ${humanSize(maxTotalBytes)} per upload. Choose fewer photos or smaller files.`);
-                return;
             }
 
             try {
                 const transfer = new DataTransfer();
-                combined.forEach((file) => transfer.items.add(file));
+                chosen.forEach((file) => transfer.items.add(file));
                 input.files = transfer.files;
             } catch (error) {
                 if (!multi) {
@@ -164,7 +176,7 @@
             render();
         };
 
-        input.addEventListener("change", () => accept(input.files));
+        input.addEventListener("change", () => accept(input.files, false));
         render();
 
         ["dragenter", "dragover"].forEach((name) => {
@@ -184,7 +196,126 @@
         zone.addEventListener("drop", (event) => {
             const files = event.dataTransfer?.files;
             if (!files || files.length === 0) return;
-            accept(files);
+            accept(files, true);
+        });
+    });
+
+    /* Batch uploads ------------------------------------------------------- */
+    const chunkFiles = (files, size, maxTotalBytes) => {
+        const chunks = [];
+        let current = [];
+        let bytes = 0;
+        // Leave room for multipart fields and headers when the host has a cap.
+        const usable = maxTotalBytes > 0 ? Math.max(1, maxTotalBytes - 65536) : 0;
+
+        files.forEach((file) => {
+            const full = current.length >= size;
+            const tooBig = usable > 0 && current.length > 0 && bytes + file.size > usable;
+            if (full || tooBig) {
+                chunks.push(current);
+                current = [];
+                bytes = 0;
+            }
+            current.push(file);
+            bytes += file.size;
+        });
+
+        if (current.length > 0) chunks.push(current);
+        return chunks;
+    };
+
+    document.querySelectorAll("[data-batch-upload]").forEach((form) => {
+        const input = form.querySelector('input[type="file"][name="photos[]"]');
+        const submit = form.querySelector('[type="submit"]');
+        const progress = form.querySelector("[data-upload-progress]");
+        const zone = form.querySelector("[data-dropzone]");
+        if (!input || !submit) return;
+
+        const batchSize = Math.max(1, Number(form.dataset.batchSize) || 10);
+        const maxTotalBytes = Number(zone?.dataset.maxTotalBytes) || 0;
+        const originalLabel = submit.innerHTML;
+        form.dataset.uploaded = "0";
+
+        const setProgress = (text, isError = false) => {
+            if (!progress) return;
+            progress.hidden = false;
+            progress.textContent = text;
+            progress.style.color = isError ? "#b42318" : "";
+        };
+
+        form.addEventListener("submit", async (event) => {
+            if (form.dataset.uploading === "1") {
+                event.preventDefault();
+                return;
+            }
+
+            const files = Array.from(input.files || []);
+            if (files.length === 0) return;
+
+            event.preventDefault();
+            form.dataset.uploading = "1";
+            submit.disabled = true;
+            submit.textContent = "Uploading…";
+
+            let uploaded = Number(form.dataset.uploaded) || 0;
+            let endpoint = form.action;
+            let orderId = form.dataset.orderId || "";
+            let orderUrl = form.dataset.orderUrl || window.location.pathname;
+            const chunks = chunkFiles(files.slice(uploaded), batchSize, maxTotalBytes);
+
+            try {
+                for (const chunk of chunks) {
+                    setProgress(`Uploading photos ${uploaded + 1}–${uploaded + chunk.length} of ${files.length}…`);
+
+                    const body = new FormData(form);
+                    body.delete("photos[]");
+                    body.set("ajax", "1");
+                    chunk.forEach((file) => body.append("photos[]", file));
+
+                    const response = await fetch(endpoint, {
+                        method: "POST",
+                        body,
+                        credentials: "same-origin",
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    });
+
+                    let data = null;
+                    try {
+                        data = await response.json();
+                    } catch (error) {
+                        data = null;
+                    }
+
+                    if (!response.ok || !data || !data.ok) {
+                        const fallback = response.status === 419
+                            ? "This form expired. Refresh the page and try again."
+                            : `Upload failed (HTTP ${response.status}).`;
+                        throw new Error(data?.error || fallback);
+                    }
+
+                    uploaded += chunk.length;
+                    form.dataset.uploaded = String(uploaded);
+
+                    if (!orderId && data.order_id) {
+                        orderId = String(data.order_id);
+                        endpoint = `${form.dataset.addUrl}?id=${encodeURIComponent(orderId)}`;
+                        orderUrl = `${form.dataset.orderUrl}?id=${encodeURIComponent(orderId)}`;
+                    }
+
+                    setProgress(`Uploaded ${uploaded} of ${files.length} photos…`);
+                }
+
+                const separator = orderUrl.includes("?") ? "&" : "?";
+                window.location.href = `${orderUrl}${separator}uploaded=${uploaded}`;
+            } catch (error) {
+                form.dataset.uploading = "0";
+                submit.disabled = false;
+                submit.innerHTML = originalLabel;
+                const already = uploaded > 0
+                    ? ` ${uploaded} photo${uploaded === 1 ? "" : "s"} already added — press the button again to continue with the rest.`
+                    : "";
+                setProgress(`${error.message}${already}`, true);
+            }
         });
     });
 

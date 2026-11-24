@@ -72,16 +72,17 @@ const DB_SQLITE_PATH = __DIR__ . '/../storage/database.sqlite';
 
 const MAX_UPLOAD_MB = 10;
 
-// An order can hold up to 100 photos. They are added in batches of at most
-// 10 so one upload request stays inside PHP's post size and memory limits.
-const MAX_PHOTOS_PER_ORDER = 100;
+// An order can hold up to 500 photos. The browser may select them all at once;
+// they are uploaded in batches of at most 10 so one request stays inside PHP's
+// post size and memory limits.
+const MAX_PHOTOS_PER_ORDER = 500;
 const MAX_PHOTOS_PER_BATCH = 10;
 
 // Stop a single order from growing without bound. 0 disables the cap.
-const MAX_ORDER_STORAGE_MB = 500;
+const MAX_ORDER_STORAGE_MB = 5000;
 
 // Printing and status checks work through a slice per request, then ask the
-// admin to continue, so a 100-photo order cannot time out one request.
+// admin to continue, so a 500-photo order cannot time out one request.
 const PRINT_BATCH_MAX = 10;
 const PRINT_BATCH_SECONDS = 20;
 const STATUS_BATCH_MAX = 25;

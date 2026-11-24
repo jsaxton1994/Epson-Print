@@ -605,6 +605,41 @@ function post_request_too_large(): bool
 }
 
 /**
+ * True when a form is uploading a chunk from the browser's batch uploader.
+ */
+function is_ajax_upload(): bool
+{
+    return input('ajax') === '1';
+}
+
+/**
+ * Finish an upload request with JSON so the batch uploader can continue with
+ * the next chunk without a page reload.
+ */
+function upload_json(array $payload, int $status = 200): void
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+/**
+ * Report an upload failure as JSON for the batch uploader, or as a normal
+ * flash + redirect when the form was submitted without JavaScript.
+ */
+function abort_upload(string $message, string $back): void
+{
+    if (is_ajax_upload()) {
+        upload_json(['ok' => false, 'error' => $message], 422);
+    }
+
+    flash('error', $message);
+    redirect($back);
+}
+
+/**
  * Check how many photos arrived and that the selection is allowed. Keeps the
  * files on disk untouched — each one is read and stored individually.
  *

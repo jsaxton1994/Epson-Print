@@ -59,7 +59,7 @@ app_start('customer', 'dashboard', 'Dashboard', 'Welcome back, ' . $user['name']
         <?= icon('sparkles') ?>
         <div>
             <strong>Nothing waiting — the printer is all yours.</strong>
-            <p>Add photos <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time, up to <?= (int) MAX_PHOTOS_PER_ORDER ?> per order, and they will be queued straight away. Every print is free, 4 × 6 included.</p>
+            <p>Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in one order — they upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time and queue straight away. Every print is free, 4 × 6 included.</p>
             <div class="banner-actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(url('customer/new-order.php')) ?>"><?= icon('upload') ?> Print photos</a>
             </div>

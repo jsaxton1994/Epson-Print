@@ -27,7 +27,7 @@ site_head('', ['active' => 'home']);
             <span class="hero-badge"><span class="status-dot"></span> Online now · 4 × 6 photo prints</span>
             <h1>Your photos.<br><span class="grad-text">Printed free.</span></h1>
             <p class="hero-lead">
-                Add photos <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time — up to <?= (int) MAX_PHOTOS_PER_ORDER ?> per order — choose 4 × 6 and borderless, and they
+                Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos — they upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time — choose 4 × 6 and borderless, and they
                 go straight to our Epson ET-2926 on real photo paper. No credits, no subscriptions, no card details.
             </p>
             <div class="hero-actions">
@@ -97,7 +97,7 @@ site_head('', ['active' => 'home']);
                 <span class="step-num">01</span>
                 <span class="step-icon"><?= icon('upload') ?></span>
                 <h3>Upload your photos</h3>
-                <p>Pick up to <?= (int) MAX_PHOTOS_PER_BATCH ?> JPGs or PNGs at a time, then add more batches until your order reaches <?= (int) MAX_PHOTOS_PER_ORDER ?>. Up to <?= e(MAX_UPLOAD_MB) ?> MB each.</p>
+                <p>Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> JPGs or PNGs at once. They upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time, so a big album never needs one huge request. Up to <?= e(MAX_UPLOAD_MB) ?> MB each.</p>
             </article>
 
             <article class="step-card reveal reveal-delay-1">
@@ -226,7 +226,7 @@ site_head('', ['active' => 'home']);
 
             <details class="faq-item reveal">
                 <summary>What photos can I print?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?> JPG or PNG photos per order, added in batches of up to <?= (int) MAX_PHOTOS_PER_BATCH ?>, <?= e(MAX_UPLOAD_MB) ?> MB each. Choose 4 × 6, 5 × 7 or A4, borderless or with a white border, colour or black and white, and standard or high quality. Every photo prints once — ask the print desk if you ever need a reprint.</p></div>
+                <div class="faq-body"><p>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?> JPG or PNG photos per order. You can select them all at once; they upload automatically in batches of up to <?= (int) MAX_PHOTOS_PER_BATCH ?>, <?= e(MAX_UPLOAD_MB) ?> MB each. Choose 4 × 6, 5 × 7 or A4, borderless or with a white border, colour or black and white, and standard or high quality. Every photo prints once — ask the print desk if you ever need a reprint.</p></div>
             </details>
 
             <details class="faq-item reveal">
@@ -267,7 +267,7 @@ site_head('', ['active' => 'home']);
                 <a class="btn btn-primary btn-lg" href="<?= e($startUrl) ?>"><?= icon('image') ?> Print a photo free</a>
                 <a class="btn btn-ghost btn-lg" href="<?= e(url('public/login.php')) ?>">Sign in</a>
             </div>
-            <span class="cta-note">No card details · up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order · <?= (int) MAX_PHOTOS_PER_BATCH ?> per batch · <?= e(MAX_UPLOAD_MB) ?> MB each</span>
+            <span class="cta-note">No card details · up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order · uploaded <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time · <?= e(MAX_UPLOAD_MB) ?> MB each</span>
         </div>
     </div>
 </section>

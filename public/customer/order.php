@@ -65,7 +65,17 @@ app_start(
     'Order ' . $order['reference'],
     $count . ' photo' . ($count === 1 ? '' : 's') . ' · submitted ' . format_date($order['created_at'])
 );
-?>
+
+$uploadedNow = (int) input('uploaded', '0');
+if ($uploadedNow > 0): ?>
+    <div class="banner banner-info">
+        <?= icon('sparkles') ?>
+        <div>
+            <strong>Upload complete</strong>
+            <p><?= $uploadedNow ?> photo<?= $uploadedNow === 1 ? '' : 's' ?> added. This order now has <?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos.</p>
+        </div>
+    </div>
+<?php endif; ?>
 
 <div class="detail-layout">
     <div class="stack">
@@ -153,24 +163,29 @@ app_start(
                 <div class="panel-head">
                     <div>
                         <h3>Add more photos</h3>
-                        <p><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in this order · up to <?= (int) $addBatchLimit ?> per batch</p>
+                        <p><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in this order · uploaded <?= (int) $addBatchLimit ?> at a time</p>
                     </div>
                 </div>
                 <div class="panel-body">
                     <?php if ($canAddPhotos): ?>
                         <form method="post" action="<?= e(url('customer/add-photos.php?id=' . $orderId)) ?>"
-                              enctype="multipart/form-data" data-submit-once>
+                              enctype="multipart/form-data" data-submit-once
+                              data-batch-upload data-batch-size="<?= (int) $addBatchLimit ?>"
+                              data-order-id="<?= (int) $orderId ?>"
+                              data-order-url="<?= e(url('customer/order.php?id=' . $orderId)) ?>"
+                              data-add-url="<?= e(url('customer/add-photos.php')) ?>">
                             <?= csrf_field() ?>
 
                             <label class="dropzone dropzone-photo" data-dropzone data-multi
                                    data-max-bytes="<?= (int) $uploadLimits['file_bytes'] ?>"
-                                   data-max-files="<?= (int) $addBatchLimit ?>"
+                                   data-max-files="<?= (int) $remainingPhotos ?>"
+                                   data-batch-size="<?= (int) $addBatchLimit ?>"
                                    data-max-total-bytes="<?= (int) $batchTotalLimit ?>">
                                 <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
                                 <span class="dropzone-icon"><?= icon('image') ?></span>
                                 <span class="dropzone-title">Drop more photos here</span>
                                 <span class="dropzone-hint" data-file-hint>
-                                    or click to browse — JPG or PNG, up to <?= e($fileLimitMb) ?> MB each, <?= (int) $addBatchLimit ?> photos per batch
+                                    or click to browse — JPG or PNG, up to <?= e($fileLimitMb) ?> MB each. Select up to <?= (int) $remainingPhotos ?>; they upload <?= (int) $addBatchLimit ?> at a time.
                                 </span>
                                 <span class="dropzone-grid" data-photo-grid></span>
                                 <span class="dropzone-list" data-photo-list></span>
@@ -179,17 +194,20 @@ app_start(
 
                             <p class="help">
                                 <?= $remainingPhotos ?> photo<?= $remainingPhotos === 1 ? '' : 's' ?> left in this order.
+                                A large selection is uploaded automatically in batches of <?= (int) $addBatchLimit ?>.
                                 <?php if ($storageCap > 0): ?>
                                     Storage used: <?= e(human_size($totalKb)) ?> of <?= e(human_size($storageCap)) ?>.
                                 <?php endif; ?>
                             </p>
+
+                            <p class="help" data-upload-progress hidden aria-live="polite"></p>
 
                             <button class="btn btn-primary" type="submit"><?= icon('plus') ?> Add photos</button>
                         </form>
                     <?php else: ?>
                         <p class="help mb-0">
                             <?= $storageLeft !== null && $storageLeft <= 0
-                                ? 'This order has reached its ' . MAX_ORDER_STORAGE_MB . ' MB storage limit. Start a new order for more photos.'
+                                ? 'This order has reached its ' . human_size(MAX_ORDER_STORAGE_MB * 1024 * 1024) . ' storage limit. Start a new order for more photos.'
                                 : 'This server cannot accept more photos right now.' ?>
                         </p>
                     <?php endif; ?>

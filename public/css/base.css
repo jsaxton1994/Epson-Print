@@ -730,6 +730,18 @@ hr {
 
 .dropzone-grid:empty { display: none; }
 
+.dropzone-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    border-radius: 9px;
+    background: var(--bg-alt, #f2f4f7);
+    color: var(--muted);
+    font-size: .82rem;
+    font-weight: 650;
+}
+
 .dropzone-list {
     display: flex;
     flex-direction: column;

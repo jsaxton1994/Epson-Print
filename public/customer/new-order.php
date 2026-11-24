@@ -33,11 +33,16 @@ if (!array_key_exists($quality, $qualities)) {
     $quality = 'high';
 }
 
+$back = 'customer/new-order.php';
+
 if (is_post()) {
     if (post_request_too_large()) {
         $serverLimit = ini_bytes((string) ini_get('post_max_size'));
-        flash('error', 'That upload is larger than this server accepts in one request (' . human_size($serverLimit) . '). Add fewer or smaller photos, or ask the host to raise post_max_size.');
-        redirect('customer/new-order.php');
+        abort_upload(
+            'That upload is larger than this server accepts in one request (' . human_size($serverLimit)
+            . '). Add fewer or smaller photos, or ask the host to raise post_max_size.',
+            $back
+        );
     }
 
     verify_csrf();
@@ -49,55 +54,65 @@ if (is_post()) {
     $notes      = mb_substr(input('notes'), 0, 500);
 
     if (!$accepting) {
-        flash('error', 'The print queue is paused right now. Please try again shortly.');
-    } else {
-        $orderId = 0;
+        abort_upload('The print queue is paused right now. Please try again shortly.', $back);
+    }
 
-        try {
-            $files = validate_photo_uploads(
-                normalize_uploaded_files($_FILES['photos'] ?? []),
-                $batchLimit,
-                MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : null
-            );
+    $orderId = 0;
 
-            $orderId = db_insert('orders', [
-                'reference'     => generate_reference(),
-                'user_id'       => $user['id'],
-                'color_mode'    => $color,
-                'borderless'    => $borderless,
-                'paper_size'    => $paper,
-                'print_quality' => $quality,
-                'notes'         => $notes !== '' ? $notes : null,
-                'status'        => 'pending',
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
+    try {
+        $files = validate_photo_uploads(
+            normalize_uploaded_files($_FILES['photos'] ?? []),
+            $batchLimit,
+            MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : null
+        );
 
-            // One photo at a time, so the order never sits in memory whole.
-            foreach ($files as $index => $file) {
-                insert_photo_upload($orderId, $file, $index + 1);
-            }
+        $orderId = db_insert('orders', [
+            'reference'     => generate_reference(),
+            'user_id'       => $user['id'],
+            'color_mode'    => $color,
+            'borderless'    => $borderless,
+            'paper_size'    => $paper,
+            'print_quality' => $quality,
+            'notes'         => $notes !== '' ? $notes : null,
+            'status'        => 'pending',
+            'created_at'    => now(),
+            'updated_at'    => now(),
+        ]);
 
-            $count = count($files);
-            log_order_event(
-                $orderId,
-                'pending',
-                $count . ' photo' . ($count === 1 ? '' : 's') . ' submitted by ' . $user['name'] . '.',
-                $user['name']
-            );
-
-            flash('success', ($count === 1
-                ? 'Your photo is in the queue.'
-                : $count . ' photos are in the queue.')
-                . ' You can add more photos to this order in batches of ' . $batchLimit . ' — up to ' . MAX_PHOTOS_PER_ORDER . ' in total.');
-            redirect('customer/order.php?id=' . $orderId);
-        } catch (RuntimeException $e) {
-            if ($orderId > 0) {
-                db_query('DELETE FROM orders WHERE id = ?', [$orderId]);
-            }
-
-            flash('error', $e->getMessage());
+        // One photo at a time, so the order never sits in memory whole.
+        foreach ($files as $index => $file) {
+            insert_photo_upload($orderId, $file, $index + 1);
         }
+
+        $count = count($files);
+        log_order_event(
+            $orderId,
+            'pending',
+            $count . ' photo' . ($count === 1 ? '' : 's') . ' submitted by ' . $user['name'] . '.',
+            $user['name']
+        );
+
+        // The browser sends the rest of a large selection as add-photo batches.
+        if (is_ajax_upload()) {
+            upload_json([
+                'ok'       => true,
+                'order_id' => $orderId,
+                'added'    => $count,
+                'total'    => $count,
+            ]);
+        }
+
+        flash('success', ($count === 1
+            ? 'Your photo is in the queue.'
+            : $count . ' photos are in the queue.')
+            . ' You can add more photos to this order in batches of ' . $batchLimit . ' — up to ' . MAX_PHOTOS_PER_ORDER . ' in total.');
+        redirect('customer/order.php?id=' . $orderId);
+    } catch (RuntimeException $e) {
+        if ($orderId > 0) {
+            db_query('DELETE FROM orders WHERE id = ?', [$orderId]);
+        }
+
+        abort_upload($e->getMessage(), $back);
     }
 }
 
@@ -105,7 +120,7 @@ app_start(
     'customer',
     'new',
     'New photo order',
-    'Start with up to ' . $batchLimit . ' photos, then add more until ' . MAX_PHOTOS_PER_ORDER . ' per order.'
+    'Select up to ' . MAX_PHOTOS_PER_ORDER . ' photos — they upload ' . $batchLimit . ' at a time.'
 );
 ?>
 
@@ -119,7 +134,10 @@ app_start(
     </div>
 <?php endif; ?>
 
-<form method="post" enctype="multipart/form-data" class="order-form-layout" data-order-form data-submit-once>
+<form method="post" enctype="multipart/form-data" class="order-form-layout" data-order-form data-submit-once
+      data-batch-upload data-batch-size="<?= (int) $batchLimit ?>"
+      data-add-url="<?= e(url('customer/add-photos.php')) ?>"
+      data-order-url="<?= e(url('customer/order.php')) ?>">
     <?= csrf_field() ?>
 
     <section class="panel">
@@ -134,18 +152,19 @@ app_start(
             <div class="form-section">
                 <div class="form-section-head">
                     <h3>1. Your photos</h3>
-                    <span>JPG or PNG · up to <?= (int) $batchLimit ?> now</span>
+                    <span>JPG or PNG · up to <?= (int) MAX_PHOTOS_PER_ORDER ?></span>
                 </div>
 
                 <label class="dropzone dropzone-photo" data-dropzone data-multi
                        data-max-bytes="<?= (int) $limits['file_bytes'] ?>"
-                       data-max-files="<?= (int) $batchLimit ?>"
+                       data-max-files="<?= (int) MAX_PHOTOS_PER_ORDER ?>"
+                       data-batch-size="<?= (int) $batchLimit ?>"
                        data-max-total-bytes="<?= (int) $limits['post_bytes'] ?>">
                     <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
                     <span class="dropzone-icon"><?= icon('image') ?></span>
                     <span class="dropzone-title">Drop your photos here</span>
                     <span class="dropzone-hint" data-file-hint>
-                        or click to browse — JPG or PNG, up to <?= e($fileLimit) ?> MB each, <?= (int) $batchLimit ?> photos per batch
+                        or click to browse — JPG or PNG, up to <?= e($fileLimit) ?> MB each. Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?>; they upload <?= (int) $batchLimit ?> at a time.
                     </span>
                     <span class="dropzone-grid" data-photo-grid></span>
                     <span class="dropzone-list" data-photo-list></span>
@@ -153,8 +172,8 @@ app_start(
                 </label>
 
                 <p class="help">
-                    Add up to <?= (int) $batchLimit ?> photos now. After the order is created you can add more batches to it,
-                    up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in total.
+                    Select all the photos you need — up to <?= (int) MAX_PHOTOS_PER_ORDER ?>. A large selection is uploaded
+                    automatically in batches of <?= (int) $batchLimit ?>, so you can leave this page open while it finishes.
                 </p>
             </div>
 
@@ -263,12 +282,12 @@ app_start(
                     <span class="doc-icon"><?= icon('image') ?></span>
                     <span class="doc-text">
                         <span class="doc-name" data-file-name>No photos chosen</span>
-                        <span class="doc-meta">JPG or PNG · <?= (int) $batchLimit ?> photos per batch</span>
+                        <span class="doc-meta">JPG or PNG · uploaded <?= (int) $batchLimit ?> at a time</span>
                     </span>
                 </div>
 
                 <div class="summary-list">
-                    <div class="summary-row"><span>Photos</span><strong data-summary="photos">0 of <?= (int) $batchLimit ?></strong></div>
+                    <div class="summary-row"><span>Photos</span><strong data-summary="photos">0 of <?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
                     <div class="summary-row"><span>Print size</span><strong data-summary="paper"><?= e(paper_size_label($paper)) ?></strong></div>
                     <div class="summary-row"><span>Border</span><strong data-summary="borderless"><?= $borderless === 1 ? 'Borderless' : 'White border' ?></strong></div>
                     <div class="summary-row"><span>Colour</span><strong data-summary="color"><?= e($color === 'mono' ? 'Black & white' : 'Colour') ?></strong></div>
@@ -277,10 +296,12 @@ app_start(
 
                 <div class="free-callout"><?= icon('sparkles') ?> Total cost: £0.00 — always free</div>
 
+                <p class="help" data-upload-progress hidden aria-live="polite"></p>
+
                 <button class="btn btn-primary btn-lg btn-block mt-3" type="submit" <?= $accepting ? '' : 'disabled' ?>>
                     <?= icon('printer') ?> Send photos to the printer
                 </button>
-                <p class="summary-note">Each photo prints once. You can follow the print from your dashboard and cancel it any time while it is still in the queue. Need more than one batch? Add more photos from the order page — up to <?= (int) MAX_PHOTOS_PER_ORDER ?> in total.</p>
+                <p class="summary-note">Each photo prints once. You can follow the print from your dashboard and cancel it any time while it is still in the queue.</p>
             </div>
         </section>
 
