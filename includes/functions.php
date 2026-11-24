@@ -15,13 +15,14 @@ function e(mixed $value): string
 }
 
 /**
- * Web path of the project root, e.g. '' or '/printfree'.
+ * Web path of public/, e.g. '' when public/ is the document root (Wasmer,
+ * Laravel-style hosts) or '/printfree/public' when the project root is.
  *
  * Internal links stay root-relative so the site works over HTTP or HTTPS and
  * inside a subdirectory without mixed-content surprises. Only the Epson
  * redirect URI needs a full URL, and that uses absolute_url().
  */
-function app_base_uri(): string
+function public_base_uri(): string
 {
     static $base = null;
 
@@ -29,31 +30,57 @@ function app_base_uri(): string
         return $base;
     }
 
-    if (APP_URL !== '') {
-        $path = parse_url(APP_URL, PHP_URL_PATH);
-
-        return $base = rtrim(is_string($path) ? $path : '', '/');
-    }
-
     if (PHP_SAPI === 'cli' || empty($_SERVER['SCRIPT_NAME'])) {
         return $base = '';
     }
 
-    $dir   = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
-    $parts = array_values(array_filter(explode('/', $dir), static fn ($p) => $p !== ''));
+    $scriptName = str_replace('\\', '/', (string) $_SERVER['SCRIPT_NAME']);
+    $scriptFile = isset($_SERVER['SCRIPT_FILENAME']) ? realpath($_SERVER['SCRIPT_FILENAME']) : false;
+    $publicDir  = realpath(__DIR__ . '/../public');
 
-    if ($parts !== [] && in_array(strtolower((string) end($parts)), ['public', 'admin', 'customer'], true)) {
-        array_pop($parts);
+    // A script inside public/ tells us where that folder is mounted, whether
+    // the host serves public/ as its root or the project root above it.
+    if ($publicDir !== false && $scriptFile !== false
+        && str_starts_with($scriptFile, $publicDir . DIRECTORY_SEPARATOR)) {
+        $relative = str_replace('\\', '/', substr($scriptFile, strlen($publicDir) + 1));
+        if ($relative !== '' && str_ends_with($scriptName, '/' . $relative)) {
+            return $base = rtrim(substr($scriptName, 0, -strlen('/' . $relative)), '/');
+        }
     }
 
-    return $base = $parts === [] ? '' : '/' . implode('/', $parts);
+    // Root-level entry points (index.php) sit one level above public/.
+    $projectDir = realpath(__DIR__ . '/..');
+    if ($projectDir !== false && $scriptFile !== false
+        && str_starts_with($scriptFile, $projectDir . DIRECTORY_SEPARATOR)) {
+        $relative = str_replace('\\', '/', substr($scriptFile, strlen($projectDir) + 1));
+        if ($relative !== '' && str_ends_with($scriptName, '/' . $relative)) {
+            $prefix = rtrim(substr($scriptName, 0, -strlen('/' . $relative)), '/');
+
+            return $base = $prefix . '/public';
+        }
+    }
+
+    return $base = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
 }
 
+/**
+ * Build an internal URL. Paths are relative to public/, which is the web root.
+ * A legacy 'public/' prefix is accepted and removed.
+ */
 function url(string $path = ''): string
 {
-    $base = app_base_uri();
+    $base = public_base_uri();
+    $path = ltrim($path, '/');
 
-    return $path === '' ? ($base === '' ? '/' : $base . '/') : $base . '/' . ltrim($path, '/');
+    if (str_starts_with($path, 'public/')) {
+        $path = substr($path, 7);
+    }
+
+    if ($path === '') {
+        return $base === '' ? '/' : $base . '/';
+    }
+
+    return $base . '/' . $path;
 }
 
 function absolute_url(string $path = ''): string
@@ -71,7 +98,7 @@ function absolute_url(string $path = ''): string
 
 function asset(string $path): string
 {
-    return url('public/' . ltrim($path, '/'));
+    return url(ltrim($path, '/'));
 }
 
 function redirect(string $path): never

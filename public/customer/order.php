@@ -5,7 +5,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/bootstrap.php';
 
 $user = require_login();
 if ($user['role'] === 'admin') {

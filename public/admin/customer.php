@@ -5,7 +5,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/bootstrap.php';
 
 $admin      = require_admin();
 $customerId = (int) input('id', '0');

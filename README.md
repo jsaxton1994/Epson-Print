@@ -24,8 +24,10 @@ Demo accounts:
 1. Upload the folder to your host, or run it locally:
 
    ```bash
-   php -S 127.0.0.1:8080 -t .
+   php -S 127.0.0.1:8080 -t public
    ```
+
+   The web root is `public/`. Point Apache, Nginx or your host (including Wasmer) at that folder. If the project root is the document root instead, the bundled `.htaccess` sends visitors to `public/index.php` and links automatically include the `/public/` prefix.
 
 2. Open the site. The first request creates the database, tables and demo data (sample photos included) automatically.
 3. Sign in with one of the demo accounts above.
@@ -35,16 +37,17 @@ The database file is `storage/database.sqlite`. Delete it to start over with fre
 ## Folder structure
 
 ```
-public/              front end (landing, sign in, register, assets)
+public/              web root (landing, sign in, register, assets)
 public/css/          base.css, site.css, dashboard.css
 public/js/           main.js, forms.js, dashboard.js
 public/img/          favicon and landing-page sample photo
-admin/               admin area (dashboard, orders, customers, settings)
-customer/            customer area (dashboard, new order, orders, profile)
+public/admin/        admin area (dashboard, orders, customers, settings)
+public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
+                      (outside the web root)
 database/            SQLite + MySQL schema files and demo photos
-storage/             SQLite database, including the stored photos (not web accessible)
-index.php            redirects to the public site
+storage/             SQLite database, including the stored photos
+index.php            redirects to the public site when the root is the docroot
 ```
 
 ## Orders and photos
