@@ -63,7 +63,7 @@ if (is_post()) {
         $files = validate_photo_uploads(
             normalize_uploaded_files($_FILES['photos'] ?? []),
             $batchLimit,
-            MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : null
+            order_storage_limit_bytes()
         );
 
         $orderId = db_insert('orders', [
@@ -113,7 +113,9 @@ if (is_post()) {
         }
 
         error_log('[PrintFree] new order failed: ' . get_class($e) . ': ' . $e->getMessage());
-        abort_upload(get_class($e) . ': ' . $e->getMessage(), $back);
+        abort_upload($e instanceof RuntimeException
+            ? $e->getMessage()
+            : 'The server could not save your photos. Please try again.', $back);
     }
 }
 

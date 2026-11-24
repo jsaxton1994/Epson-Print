@@ -588,6 +588,23 @@ function upload_limits(): array
 }
 
 /**
+ * The per-order storage cap in bytes. MB * 1024 * 1024 overflows a 32-bit
+ * integer (the Wasmer host), turning the value into a float, so clamp the
+ * multiplication to the platform's integer range.
+ */
+function order_storage_limit_bytes(): ?int
+{
+    if (MAX_ORDER_STORAGE_MB <= 0) {
+        return null;
+    }
+
+    $perMb = 1024 * 1024;
+    $maxMb = intdiv(PHP_INT_MAX, $perMb);
+
+    return min(MAX_ORDER_STORAGE_MB, $maxMb) * $perMb;
+}
+
+/**
  * True when PHP discarded a POST because it was larger than post_max_size.
  * In that case $_POST and $_FILES are empty, so this must be checked before
  * CSRF validation to show a useful message instead of a generic failure.

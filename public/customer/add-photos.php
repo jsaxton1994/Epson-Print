@@ -41,8 +41,8 @@ verify_csrf();
 $count        = order_photo_count((int) $order['id']);
 $remaining    = max(0, MAX_PHOTOS_PER_ORDER - $count);
 $storageBytes = order_storage_bytes((int) $order['id']);
-$storageCap   = MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : 0;
-$storageLeft  = $storageCap > 0 ? max(0, $storageCap - $storageBytes) : null;
+$storageCap   = order_storage_limit_bytes();
+$storageLeft  = $storageCap !== null ? max(0, $storageCap - $storageBytes) : null;
 $limits       = upload_limits();
 $maxFiles     = min(MAX_PHOTOS_PER_BATCH, $remaining, $limits['max_files']);
 
@@ -55,7 +55,7 @@ if ($remaining <= 0) {
 }
 
 if ($storageLeft !== null && $storageLeft <= 0) {
-    abort_upload('This order has reached its ' . human_size(MAX_ORDER_STORAGE_MB * 1024 * 1024) . ' storage limit. Start a new order for more photos.', $back);
+    abort_upload('This order has reached its ' . human_size(order_storage_limit_bytes() ?? 0) . ' storage limit. Start a new order for more photos.', $back);
 }
 
 if ($maxFiles <= 0) {
@@ -112,7 +112,9 @@ try {
     }
 
     error_log('[PrintFree] add photos failed: ' . get_class($e) . ': ' . $e->getMessage());
-    abort_upload(get_class($e) . ': ' . $e->getMessage(), $back);
+    abort_upload($e instanceof RuntimeException
+        ? $e->getMessage()
+        : 'The server could not save your photos. Please try again.', $back);
 }
 
 redirect($back);

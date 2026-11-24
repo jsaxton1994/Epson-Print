@@ -45,7 +45,7 @@ $totalKb  = array_sum(array_map(static fn (array $p): int => (int) $p['file_size
 $uploadLimits    = upload_limits();
 $remainingPhotos = max(0, MAX_PHOTOS_PER_ORDER - $count);
 $addBatchLimit   = min(MAX_PHOTOS_PER_BATCH, $remainingPhotos, $uploadLimits['max_files']);
-$storageCap      = MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : 0;
+$storageCap      = order_storage_limit_bytes() ?? 0;
 $storageLeft     = $storageCap > 0 ? max(0, $storageCap - $totalKb) : null;
 $fileLimitMb     = round($uploadLimits['file_bytes'] / 1048576, 1);
 $canAddPhotos    = $order['status'] === 'pending'
@@ -209,7 +209,7 @@ if ($uploadedNow > 0): ?>
                     <?php else: ?>
                         <p class="help mb-0">
                             <?= $storageLeft !== null && $storageLeft <= 0
-                                ? 'This order has reached its ' . human_size(MAX_ORDER_STORAGE_MB * 1024 * 1024) . ' storage limit. Start a new order for more photos.'
+                                ? 'This order has reached its ' . human_size($storageCap) . ' storage limit. Start a new order for more photos.'
                                 : 'This server cannot accept more photos right now.' ?>
                         </p>
                     <?php endif; ?>

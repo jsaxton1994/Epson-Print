@@ -376,7 +376,7 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                     <div class="summary-row"><span>Photos per order</span><strong><?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
                     <div class="summary-row"><span>Photos per batch</span><strong><?= (int) MAX_PHOTOS_PER_BATCH ?></strong></div>
                     <div class="summary-row"><span>Upload limit</span><strong><?= e(MAX_UPLOAD_MB) ?> MB each</strong></div>
-                    <div class="summary-row"><span>Order storage cap</span><strong><?= MAX_ORDER_STORAGE_MB > 0 ? e(human_size(MAX_ORDER_STORAGE_MB * 1024 * 1024)) : 'No cap' ?></strong></div>
+                    <div class="summary-row"><span>Order storage cap</span><strong><?= order_storage_limit_bytes() !== null ? e(human_size(order_storage_limit_bytes())) : 'No cap' ?></strong></div>
                     <div class="summary-row"><span>Database size</span><strong><?= e(human_size(database_size_bytes())) ?></strong></div>
                     <div class="summary-row"><span>Price per order</span><strong>Free</strong></div>
                 </div>
