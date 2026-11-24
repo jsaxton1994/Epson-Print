@@ -89,7 +89,7 @@ function site_head(string $title, array $options = []): void
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($full) ?></title>
-    <meta name="description" content="<?= e($options['description'] ?? 'Print your photos for free on the PrintFree Epson ET-2926. Upload a JPG or PNG, choose 4 × 6 and we print it on photo paper.') ?>">
+    <meta name="description" content="<?= e($options['description'] ?? 'Print your photos for free on the PrintFree Epson ET-2926. Upload a photo — JPG, PNG, HEIC, WebP and more — choose 4 × 6 and we print it on photo paper.') ?>">
     <meta name="theme-color" content="#f6f8fc">
     <link rel="icon" href="<?= e(asset('img/favicon.svg')) ?>" type="image/svg+xml">
     <link rel="stylesheet" href="<?= e(asset('css/base.css')) ?>">

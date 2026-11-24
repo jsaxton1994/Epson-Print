@@ -173,7 +173,9 @@ if ($uploadedNow > 0): ?>
                               data-batch-upload data-batch-size="<?= (int) $addBatchLimit ?>"
                               data-order-id="<?= (int) $orderId ?>"
                               data-order-url="<?= e(url('customer/order.php?id=' . $orderId)) ?>"
-                              data-add-url="<?= e(url('customer/add-photos.php')) ?>">
+                              data-add-url="<?= e(url('customer/add-photos.php')) ?>"
+                              data-heic-decoder="<?= e(asset('js/vendor/heic2any.min.js')) ?>"
+                              data-tiff-decoder="<?= e(asset('js/vendor/UTIF.js')) ?>">
                             <?= csrf_field() ?>
 
                             <label class="dropzone dropzone-photo" data-dropzone data-multi
@@ -181,11 +183,11 @@ if ($uploadedNow > 0): ?>
                                    data-max-files="<?= (int) $remainingPhotos ?>"
                                    data-batch-size="<?= (int) $addBatchLimit ?>"
                                    data-max-total-bytes="<?= (int) $batchTotalLimit ?>">
-                                <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
+                                <input type="file" name="photos[]" accept="image/*,.heic,.heif,.tif,.tiff,.webp,.gif,.bmp,.avif,.tga,.jfif,.ico" multiple required>
                                 <span class="dropzone-icon"><?= icon('image') ?></span>
                                 <span class="dropzone-title">Drop more photos here</span>
                                 <span class="dropzone-hint" data-file-hint>
-                                    or click to browse — JPG or PNG, up to <?= e($fileLimitMb) ?> MB each. Select up to <?= (int) $remainingPhotos ?>; they upload <?= (int) $addBatchLimit ?> at a time.
+                                    or click to browse — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF and more, up to <?= e($fileLimitMb) ?> MB each. Select up to <?= (int) $remainingPhotos ?>; they upload <?= (int) $addBatchLimit ?> at a time.
                                 </span>
                                 <span class="dropzone-grid" data-photo-grid></span>
                                 <span class="dropzone-list" data-photo-list></span>

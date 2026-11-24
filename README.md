@@ -2,7 +2,7 @@
 
 A completely free **photo** printing service for an **Epson ET-2926**, built in plain PHP with a database, and powered by the **Epson Connect API v2**.
 
-Customers build orders of up to **500 JPG or PNG photos**. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches (or mark them printed manually), and manage customers. No payments, allowances or credits anywhere.
+Customers build orders of up to **500 photos** — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches (or mark them printed manually), and manage customers. No payments, allowances or credits anywhere.
 
 Demo accounts:
 
@@ -40,6 +40,7 @@ The database file is `storage/database.sqlite`. Delete it to start over with fre
 public/              web root (landing, sign in, register, assets)
 public/css/          base.css, site.css, dashboard.css
 public/js/           main.js, forms.js, dashboard.js
+public/js/vendor/    bundled HEIC (heic2any) and TIFF (UTIF.js) browser decoders
 public/img/          favicon and landing-page sample photo
 public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
@@ -73,9 +74,9 @@ The order status is derived from its photos:
 
 ## The photo flow
 
-1. A customer selects up to 500 JPGs or PNGs. The browser validates type and size, then uploads them in chunks of at most 10 (smaller when the host's `post_max_size` requires it). Each photo is validated again on the server by MIME type, extension and real image dimensions via `getimagesize()`, up to 10 MB.
+1. A customer selects up to 500 photos. The browser accepts any common image type and converts HEIC/TIFF with the bundled decoders, validates size, then uploads the selection in chunks of at most 10 (smaller when the host's `post_max_size` requires it). Each photo is decoded again on the server, up to 10 MB.
 2. The first chunk creates the order with the chosen print settings; the remaining chunks are sent to `customer/add-photos.php` under the same order. A progress line shows how many photos have been uploaded, and a failed chunk can be retried from where it stopped.
-3. Each photo is stored as a BLOB in `order_photos.image_data` — nothing is written to disk — one file at a time, so a request never holds more than a single photo in memory. A small JPEG preview is generated with GD and stored in `thumb_data`; list pages and galleries load that instead of the full-size photo.
+3. Each photo is normalised before storage: JPEG and PNG keep their bytes, while WebP, GIF, BMP, AVIF and TGA are converted to JPEG with GD. HEIC and TIFF are converted in the browser by the bundled decoders; direct uploads of those formats also use Imagick when the server has it. Transparency is flattened onto white. Stored BLOBs in `order_photos.image_data` are therefore always printable, and nothing is written to disk — one file at a time, so a request never holds more than a single photo in memory. A small JPEG preview is generated with GD and stored in `thumb_data`; list pages and galleries load that instead of the full-size photo.
 4. An administrator opens the order and presses **Print**. The site creates **one Epson job per photo**, uploading up to `PRINT_BATCH_MAX` photos per click with a `PRINT_BATCH_SECONDS` wall-clock budget, then asks the admin to continue. A 500-photo order is therefore finished over several clicks instead of one long request.
 5. Epson job status is refreshed in batches too (`STATUS_BATCH_MAX` / `STATUS_BATCH_SECONDS`), and the customer sees the timeline and per-photo status update.
 
@@ -119,7 +120,7 @@ Until the printer is linked, orders can still be managed and marked printed by h
 - Passwords use `password_hash()`, sessions use `HttpOnly` + `SameSite` cookies, all forms are CSRF protected.
 - Every query uses prepared statements; output is escaped with `e()`.
 - Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/`, `database/` and `storage/` are blocked with `.htaccess`.
-- Customers can only ever see their own photos and orders. Uploads are validated by extension, MIME type (`image/jpeg` / `image/png`), `getimagesize()` and a per-file size limit in `includes/config.php`.
+- Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
 - Admin: deleting a customer or an order also deletes all of its stored photos.
 
 ## Customising
@@ -132,3 +133,4 @@ Until the printer is linked, orders can still be managed and marked printed by h
 - PHP limits: `public/.user.ini` requests 12 MB per file, a 128 MB POST and 20 files per request on hosts that honour `.user.ini` (PHP-FPM/Apache). PHP's built-in server ignores it, so the UI falls back to whatever the server reports.
 - If PHP discards an oversized POST, the upload pages detect it and show a friendly "smaller batch" message instead of a CSRF error.
 - Styling: `public/css/base.css` holds the tokens (colours, radii, shadows); `site.css` is the public website and `dashboard.css` the signed-in areas.
+- Photo formats: GD handles JPG, PNG, WebP, GIF, BMP, AVIF, TGA and friends; the bundled `heic2any` and `UTIF.js` decoders convert HEIC/TIFF in the browser, so no PHP extension is required. Imagick is used as a server-side fallback when available. Both bundled libraries are MIT licensed — see `public/js/vendor/*.LICENSE*`.

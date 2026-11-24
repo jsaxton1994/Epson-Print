@@ -137,7 +137,9 @@ app_start(
 <form method="post" enctype="multipart/form-data" class="order-form-layout" data-order-form data-submit-once
       data-batch-upload data-batch-size="<?= (int) $batchLimit ?>"
       data-add-url="<?= e(url('customer/add-photos.php')) ?>"
-      data-order-url="<?= e(url('customer/order.php')) ?>">
+      data-order-url="<?= e(url('customer/order.php')) ?>"
+      data-heic-decoder="<?= e(asset('js/vendor/heic2any.min.js')) ?>"
+      data-tiff-decoder="<?= e(asset('js/vendor/UTIF.js')) ?>">
     <?= csrf_field() ?>
 
     <section class="panel">
@@ -152,7 +154,7 @@ app_start(
             <div class="form-section">
                 <div class="form-section-head">
                     <h3>1. Your photos</h3>
-                    <span>JPG or PNG · up to <?= (int) MAX_PHOTOS_PER_ORDER ?></span>
+                    <span>Any common photo · up to <?= (int) MAX_PHOTOS_PER_ORDER ?></span>
                 </div>
 
                 <label class="dropzone dropzone-photo" data-dropzone data-multi
@@ -160,11 +162,11 @@ app_start(
                        data-max-files="<?= (int) MAX_PHOTOS_PER_ORDER ?>"
                        data-batch-size="<?= (int) $batchLimit ?>"
                        data-max-total-bytes="<?= (int) $limits['post_bytes'] ?>">
-                    <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
+                    <input type="file" name="photos[]" accept="image/*,.heic,.heif,.tif,.tiff,.webp,.gif,.bmp,.avif,.tga,.jfif,.ico" multiple required>
                     <span class="dropzone-icon"><?= icon('image') ?></span>
                     <span class="dropzone-title">Drop your photos here</span>
                     <span class="dropzone-hint" data-file-hint>
-                        or click to browse — JPG or PNG, up to <?= e($fileLimit) ?> MB each. Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?>; they upload <?= (int) $batchLimit ?> at a time.
+                        or click to browse — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF and more, up to <?= e($fileLimit) ?> MB each. Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?>; they upload <?= (int) $batchLimit ?> at a time.
                     </span>
                     <span class="dropzone-grid" data-photo-grid></span>
                     <span class="dropzone-list" data-photo-list></span>
@@ -282,7 +284,7 @@ app_start(
                     <span class="doc-icon"><?= icon('image') ?></span>
                     <span class="doc-text">
                         <span class="doc-name" data-file-name>No photos chosen</span>
-                        <span class="doc-meta">JPG or PNG · uploaded <?= (int) $batchLimit ?> at a time</span>
+                        <span class="doc-meta">Any common photo · uploaded <?= (int) $batchLimit ?> at a time</span>
                     </span>
                 </div>
 

@@ -683,9 +683,10 @@ function validate_photo_uploads(array $files, ?int $maxFiles = null, ?int $maxTo
             throw new RuntimeException('Please keep photos under ' . human_size($maxBytes) . ' each on this server.');
         }
 
-        $extension = strtolower(pathinfo(trim((string) ($file['name'] ?? '')), PATHINFO_EXTENSION));
-        if (!in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
-            throw new RuntimeException('Only JPG and PNG photos can be printed.');
+        if (!photo_upload_is_supported_name(trim((string) ($file['name'] ?? '')), (string) ($file['type'] ?? ''))) {
+            throw new RuntimeException(
+                'That file type is not a photo. Choose a JPG, PNG, HEIC, WebP, GIF, BMP, TIFF or AVIF image.'
+            );
         }
     }
 
@@ -742,7 +743,132 @@ function insert_photo_upload(int $orderId, array $file, int $position): int
 }
 
 /**
- * Validate and read one JPG or PNG photo, plus its thumbnail.
+ * Image extensions the picker advertises. The server normalises whatever it
+ * can decode, so storing is not limited to these.
+ *
+ * @return array<int,string>
+ */
+function photo_upload_extensions(): array
+{
+    return ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'gif', 'bmp', 'avif', 'tif', 'tiff', 'heic', 'heif', 'tga', 'ico'];
+}
+
+/**
+ * A broad check so the picker can accept any common image. The real test is
+ * whether GD or Imagick can decode it when the photo is read.
+ */
+function photo_upload_is_supported_name(string $name, string $mime = ''): bool
+{
+    $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    $mime      = strtolower($mime);
+
+    return in_array($extension, photo_upload_extensions(), true) || str_starts_with($mime, 'image/');
+}
+
+/**
+ * Convert image bytes to a JPEG Epson can print, flattening any transparency
+ * onto white photo paper. Returns null when GD cannot decode the format.
+ *
+ * @return array{data:string,mime:string,width:int,height:int}|null
+ */
+function photo_gd_to_jpeg(string $data, int $width, int $height): ?array
+{
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
+        return null;
+    }
+
+    // Decoding a huge image can exhaust memory; reject before allocating it.
+    if ($width < 1 || $height < 1 || ($width * $height) > 40_000_000) {
+        return null;
+    }
+
+    $image = @imagecreatefromstring($data);
+    if ($image === false) {
+        return null;
+    }
+
+    $canvas = imagecreatetruecolor($width, $height);
+    if ($canvas === false) {
+        imagedestroy($image);
+
+        return null;
+    }
+
+    imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+    imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
+
+    ob_start();
+    $ok   = imagejpeg($canvas, null, 92);
+    $jpeg = ob_get_clean();
+
+    imagedestroy($canvas);
+    imagedestroy($image);
+
+    if (!$ok || !is_string($jpeg) || $jpeg === '') {
+        return null;
+    }
+
+    return ['data' => $jpeg, 'mime' => 'image/jpeg', 'width' => $width, 'height' => $height];
+}
+
+/**
+ * Fallback decoder for HEIC, TIFF and anything else GD was not built with.
+ * Imagick is optional, so this quietly returns null when it is unavailable.
+ *
+ * @return array{data:string,mime:string,width:int,height:int}|null
+ */
+function photo_imagick_to_jpeg(string $data): ?array
+{
+    if (!class_exists('Imagick')) {
+        return null;
+    }
+
+    try {
+        $image = new Imagick();
+        $image->readImageBlob($data);
+
+        if ($image->getNumberImages() > 1) {
+            $image->setIteratorIndex(0);
+        }
+
+        if (method_exists($image, 'autoOrientImage')) {
+            $image->autoOrientImage();
+        }
+
+        $width  = (int) $image->getImageWidth();
+        $height = (int) $image->getImageHeight();
+
+        if ($width < 1 || $height < 1) {
+            $image->clear();
+
+            return null;
+        }
+
+        $image->setImageBackgroundColor('white');
+        if (method_exists($image, 'setImageAlphaChannel') && defined('Imagick::ALPHACHANNEL_REMOVE')) {
+            $image->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+        }
+
+        $image->setImageFormat('jpeg');
+        $image->setImageCompressionQuality(92);
+        $image->stripImage();
+        $jpeg = $image->getImageBlob();
+        $image->clear();
+
+        if (!is_string($jpeg) || $jpeg === '') {
+            return null;
+        }
+
+        return ['data' => $jpeg, 'mime' => 'image/jpeg', 'width' => $width, 'height' => $height];
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Validate and read one photo, normalising anything that is not already JPEG
+ * or PNG to JPEG. The stored name and MIME always match the stored bytes, so
+ * Epson receives a printable file even when the original was HEIC or WebP.
  */
 function read_photo_upload(array $file, int $position): array
 {
@@ -764,21 +890,11 @@ function read_photo_upload(array $file, int $position): array
         throw new RuntimeException('Please keep photos under ' . human_size($maxBytes) . ' each on this server.');
     }
 
-    $original  = trim((string) ($file['name'] ?? 'photo.jpg'));
-    $extension = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-
-    if (!in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
-        throw new RuntimeException('Only JPG and PNG photos can be printed.');
-    }
-
-    $info = @getimagesize($file['tmp_name']);
-    if ($info === false || !isset($info['mime'])) {
-        throw new RuntimeException('That file is not a readable photo. Please upload a JPG or PNG.');
-    }
-
-    if (!in_array($info['mime'], ['image/jpeg', 'image/png'], true)) {
-        throw new RuntimeException('Only JPG and PNG photos can be printed.');
-    }
+    $original = trim((string) ($file['name'] ?? 'photo.jpg'));
+    $info     = @getimagesize($file['tmp_name']);
+    $mime     = is_array($info) ? strtolower((string) ($info['mime'] ?? '')) : '';
+    $width    = is_array($info) ? (int) ($info[0] ?? 0) : 0;
+    $height   = is_array($info) ? (int) ($info[1] ?? 0) : 0;
 
     $data = @file_get_contents($file['tmp_name']);
 
@@ -786,14 +902,30 @@ function read_photo_upload(array $file, int $position): array
         throw new RuntimeException('The server could not read your photo. Please try again.');
     }
 
+    if (in_array($mime, ['image/jpeg', 'image/png'], true)) {
+        $stored = ['data' => $data, 'mime' => $mime, 'width' => $width, 'height' => $height];
+    } else {
+        $stored = photo_gd_to_jpeg($data, $width, $height) ?? photo_imagick_to_jpeg($data);
+    }
+
+    if ($stored === null) {
+        throw new RuntimeException(
+            'That photo could not be opened. Save it as JPG or PNG, or try another browser.'
+        );
+    }
+
+    $baseName = pathinfo($original, PATHINFO_FILENAME);
+    $baseName = mb_substr($baseName !== '' ? $baseName : 'photo', 0, 240);
+    $extension = $stored['mime'] === 'image/png' ? 'png' : 'jpg';
+
     return [
-        'data'     => $data,
-        'thumb'    => make_photo_thumbnail($data),
-        'mime'     => (string) $info['mime'],
-        'name'     => mb_substr($original, 0, 255),
-        'size'     => strlen($data),
-        'width'    => (int) $info[0],
-        'height'   => (int) $info[1],
+        'data'     => $stored['data'],
+        'thumb'    => make_photo_thumbnail($stored['data']),
+        'mime'     => $stored['mime'],
+        'name'     => $baseName . '.' . $extension,
+        'size'     => strlen($stored['data']),
+        'width'    => $stored['width'],
+        'height'   => $stored['height'],
         'position' => $position,
     ];
 }

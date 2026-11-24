@@ -52,7 +52,8 @@
 
         const selected = () => Array.from(input.files || []);
 
-        const isPhoto = (file) => file.type === "image/jpeg" || file.type === "image/png" || /\.(jpe?g|png)$/i.test(file.name);
+        const isPhoto = (file) => file.type.startsWith("image/")
+            || /\.(jpe?g|jfif|png|webp|gif|bmp|avif|tiff?|heics?|heif|tga|ico)$/i.test(file.name);
 
         const invalidate = (message, clear = true) => {
             window.alert(message);
@@ -104,8 +105,8 @@
                 if (titleEl) titleEl.textContent = multi ? "Drop your photos here" : "Drop your photo here";
                 if (hintEl) {
                     hintEl.textContent = multi
-                        ? `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${maxFiles}; uploaded ${batchSize} at a time.`
-                        : `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB`;
+                        ? `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${maxFiles}; uploaded ${batchSize} at a time.`
+                        : `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB`;
                 }
                 nameEls.forEach((element) => {
                     element.textContent = multi ? "" : "";
@@ -153,7 +154,7 @@
 
             for (const file of chosen) {
                 if (!isPhoto(file)) {
-                    invalidate("Please choose JPG or PNG photos only. Other formats need converting first.", !append);
+                    invalidate("Please choose image files only — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar.", !append);
                     return;
                 }
                 if (file.size > maxBytes) {
@@ -201,6 +202,163 @@
     });
 
     /* Batch uploads ------------------------------------------------------- */
+    const isHeicFile = (file) => /\.(heic|heif)$/i.test(file.name)
+        || ["image/heic", "image/heif"].includes(file.type);
+    const isTiffFile = (file) => /\.tiff?$/i.test(file.name) || file.type === "image/tiff";
+
+    const loadScriptGlobal = (src, globalName) => {
+        if (!src) return Promise.reject(new Error(`${globalName} decoder is not configured`));
+
+        return new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = src;
+            script.async = true;
+            script.onload = () => {
+                if (window[globalName]) resolve(window[globalName]);
+                else reject(new Error(`${globalName} decoder did not load`));
+            };
+            script.onerror = () => reject(new Error(`${globalName} decoder did not load`));
+            document.head.appendChild(script);
+        });
+    };
+
+    let heicDecoderPromise = null;
+    const loadHeicDecoder = (src) => {
+        if (typeof window.heic2any === "function") {
+            return Promise.resolve(window.heic2any);
+        }
+        if (!src) {
+            return Promise.reject(new Error("HEIC decoder is not configured"));
+        }
+        if (!heicDecoderPromise) {
+            heicDecoderPromise = new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = src;
+                script.async = true;
+                script.onload = () => {
+                    if (typeof window.heic2any === "function") resolve(window.heic2any);
+                    else reject(new Error("HEIC decoder did not load"));
+                };
+                script.onerror = () => reject(new Error("HEIC decoder did not load"));
+                document.head.appendChild(script);
+            }).catch((error) => {
+                heicDecoderPromise = null;
+                throw error;
+            });
+        }
+        return heicDecoderPromise;
+    };
+
+    let tiffDecoderPromise = null;
+    const loadTiffDecoder = (src) => {
+        if (window.UTIF) return Promise.resolve(window.UTIF);
+        if (!tiffDecoderPromise) {
+            tiffDecoderPromise = loadScriptGlobal(src, "UTIF").catch((error) => {
+                tiffDecoderPromise = null;
+                throw error;
+            });
+        }
+        return tiffDecoderPromise;
+    };
+
+    const tiffSource = async (file, src) => {
+        const UTIF = await loadTiffDecoder(src);
+        const buffer = await file.arrayBuffer();
+        const pages = UTIF.decode(buffer);
+
+        if (!pages || pages.length === 0) throw new Error("unreadable TIFF");
+
+        UTIF.decodeImage(buffer, pages[0]);
+        const width = pages[0].width;
+        const height = pages[0].height;
+        if (!width || !height || width * height > 40_000_000) throw new Error("TIFF too large");
+
+        const rgba = UTIF.toRGBA8(pages[0]);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+
+        return canvas;
+    };
+
+    const imageSource = async (file) => {
+        if (typeof createImageBitmap === "function") {
+            try {
+                return await createImageBitmap(file);
+            } catch (error) {
+                /* Fall through to an <img>; Safari can decode some HEIC files that way. */
+            }
+        }
+
+        return await new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file);
+            const image = new Image();
+            image.onload = () => {
+                URL.revokeObjectURL(url);
+                resolve(image);
+            };
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error("unreadable"));
+            };
+            image.src = url;
+        });
+    };
+
+    const prepareForUpload = async (file, heicSrc, tiffSrc) => {
+        if (!isHeicFile(file) && !isTiffFile(file)) return file;
+
+        try {
+            let source;
+
+            try {
+                source = await imageSource(file);
+            } catch (nativeError) {
+                if (isHeicFile(file)) {
+                    // Chrome/Firefox on desktop usually cannot decode HEIC. Fall back
+                    // to the bundled decoder (Safari/iOS may already do it natively).
+                    const decode = await loadHeicDecoder(heicSrc);
+                    const converted = await decode({ blob: file, toType: "image/jpeg", quality: 0.92, multiple: false });
+                    const blob = Array.isArray(converted) ? converted[0] : converted;
+                    source = await imageSource(blob);
+                } else {
+                    source = await tiffSource(file, tiffSrc);
+                }
+            }
+
+            const width = source.width || source.naturalWidth;
+            const height = source.height || source.naturalHeight;
+            if (!width || !height) throw new Error("unreadable");
+
+            // Keep plenty of pixels for up to A4 (300 dpi), without huge phone canvases.
+            const scale = Math.min(1, 3508 / Math.max(width, height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(width * scale));
+            canvas.height = Math.max(1, Math.round(height * scale));
+
+            const context = canvas.getContext("2d");
+            context.fillStyle = "#fff";
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(source, 0, 0, canvas.width, canvas.height);
+            if (typeof source.close === "function") source.close();
+
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+            if (!blob) throw new Error("unreadable");
+
+            return new File(
+                [blob],
+                `${file.name.replace(/\.[^.]+$/, "")}.jpg`,
+                { type: "image/jpeg", lastModified: file.lastModified }
+            );
+        } catch (error) {
+            throw new Error(
+                `${file.name} is a ${isHeicFile(file) ? "HEIC" : "TIFF"} photo that could not be converted. `
+                + "Try a JPG or PNG version of the photo."
+            );
+        }
+    };
+
     const chunkFiles = (files, size, maxTotalBytes) => {
         const chunks = [];
         let current = [];
@@ -233,6 +391,8 @@
 
         const batchSize = Math.max(1, Number(form.dataset.batchSize) || 10);
         const maxTotalBytes = Number(zone?.dataset.maxTotalBytes) || 0;
+        const heicDecoder = form.dataset.heicDecoder || "";
+        const tiffDecoder = form.dataset.tiffDecoder || "";
         const originalLabel = submit.innerHTML;
         form.dataset.uploaded = "0";
 
@@ -261,9 +421,21 @@
             let endpoint = form.action;
             let orderId = form.dataset.orderId || "";
             let orderUrl = form.dataset.orderUrl || window.location.pathname;
-            const chunks = chunkFiles(files.slice(uploaded), batchSize, maxTotalBytes);
 
             try {
+                // HEIC/TIFF first: use the browser decoder where it exists so the
+                // server receives a JPEG it can definitely print.
+                const remaining = files.slice(uploaded);
+                const prepared = [];
+                for (let index = 0; index < remaining.length; index++) {
+                    if (isHeicFile(remaining[index]) || isTiffFile(remaining[index])) {
+                        setProgress(`Preparing photo ${index + 1} of ${remaining.length}…`);
+                    }
+                    prepared.push(await prepareForUpload(remaining[index], heicDecoder, tiffDecoder));
+                }
+
+                const chunks = chunkFiles(prepared, batchSize, maxTotalBytes);
+
                 for (const chunk of chunks) {
                     setProgress(`Uploading photos ${uploaded + 1}–${uploaded + chunk.length} of ${files.length}…`);
 

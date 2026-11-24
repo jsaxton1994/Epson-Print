@@ -97,7 +97,7 @@ site_head('', ['active' => 'home']);
                 <span class="step-num">01</span>
                 <span class="step-icon"><?= icon('upload') ?></span>
                 <h3>Upload your photos</h3>
-                <p>Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> JPGs or PNGs at once. They upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time, so a big album never needs one huge request. Up to <?= e(MAX_UPLOAD_MB) ?> MB each.</p>
+                <p>Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos at once — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF and more. They upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time, so a big album never needs one huge request. Up to <?= e(MAX_UPLOAD_MB) ?> MB each.</p>
             </article>
 
             <article class="step-card reveal reveal-delay-1">
@@ -226,7 +226,7 @@ site_head('', ['active' => 'home']);
 
             <details class="faq-item reveal">
                 <summary>What photos can I print?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?> JPG or PNG photos per order. You can select them all at once; they upload automatically in batches of up to <?= (int) MAX_PHOTOS_PER_BATCH ?>, <?= e(MAX_UPLOAD_MB) ?> MB each. Choose 4 × 6, 5 × 7 or A4, borderless or with a white border, colour or black and white, and standard or high quality. Every photo prints once — ask the print desk if you ever need a reprint.</p></div>
+                <div class="faq-body"><p>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. You can select them all at once; they upload automatically in batches of up to <?= (int) MAX_PHOTOS_PER_BATCH ?>, <?= e(MAX_UPLOAD_MB) ?> MB each. Choose 4 × 6, 5 × 7 or A4, borderless or with a white border, colour or black and white, and standard or high quality. Every photo prints once — ask the print desk if you ever need a reprint.</p></div>
             </details>
 
             <details class="faq-item reveal">
