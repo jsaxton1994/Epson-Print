@@ -73,3 +73,12 @@ CREATE TABLE settings (
     setting_value TEXT        DEFAULT NULL,
     PRIMARY KEY (setting_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Sessions live in the database so every app instance shares sign-in state.
+CREATE TABLE sessions (
+    id            VARCHAR(128) NOT NULL,
+    data          LONGTEXT     NOT NULL,
+    last_activity INT UNSIGNED NOT NULL,
+    PRIMARY KEY (id),
+    KEY sessions_activity_idx (last_activity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

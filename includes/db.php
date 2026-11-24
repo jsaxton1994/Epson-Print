@@ -92,6 +92,9 @@ function db_connect_sqlite(): PDO
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     ]);
     $pdo->exec('PRAGMA foreign_keys = ON');
+    // Sessions write on most requests; wait instead of failing if another
+    // instance holds the database briefly.
+    $pdo->exec('PRAGMA busy_timeout = 5000');
 
     return $pdo;
 }

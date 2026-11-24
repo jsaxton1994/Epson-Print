@@ -69,3 +69,12 @@ CREATE TABLE settings (
     setting_key   TEXT PRIMARY KEY,
     setting_value TEXT DEFAULT NULL
 );
+
+-- Sessions live in the database so every app instance shares sign-in state.
+CREATE TABLE sessions (
+    id            TEXT PRIMARY KEY,
+    data          TEXT    NOT NULL,
+    last_activity INTEGER NOT NULL
+);
+
+CREATE INDEX idx_sessions_activity ON sessions (last_activity);

@@ -5,6 +5,142 @@
 
 declare(strict_types=1);
 
+/**
+ * Keep sessions in the shared database instead of each instance's /tmp.
+ * Wasmer (and any multi-instance host) routes requests to different workers,
+ * so file-based sessions lose the login and CSRF token on the next request.
+ * The `sessions` table follows the app's MySQL or SQLite connection and is
+ * created on demand, so existing installs pick it up without a migration.
+ */
+final class DatabaseSessionHandler implements SessionHandlerInterface
+{
+    private bool $tableReady = false;
+
+    public function open(string $path, string $name): bool
+    {
+        $this->ensureTable();
+
+        return true;
+    }
+
+    public function close(): bool
+    {
+        return true;
+    }
+
+    public function read(string $id): string|false
+    {
+        if (!$this->validId($id)) {
+            return '';
+        }
+
+        try {
+            $data = db_val('SELECT data FROM sessions WHERE id = ?', [$id]);
+            if (!is_string($data) || $data === '') {
+                return '';
+            }
+
+            $decoded = base64_decode($data, true);
+
+            return $decoded === false ? '' : $decoded;
+        } catch (Throwable $e) {
+            error_log('[PrintFree] session read failed: ' . $e->getMessage());
+
+            return '';
+        }
+    }
+
+    public function write(string $id, string $data): bool
+    {
+        if (!$this->validId($id)) {
+            return false;
+        }
+
+        try {
+            $this->ensureTable();
+            $sql = db_driver() === 'mysql'
+                ? 'INSERT INTO sessions (id, data, last_activity) VALUES (?, ?, ?)
+                   ON DUPLICATE KEY UPDATE data = VALUES(data), last_activity = VALUES(last_activity)'
+                : 'INSERT OR REPLACE INTO sessions (id, data, last_activity) VALUES (?, ?, ?)';
+
+            db_query($sql, [$id, base64_encode($data), time()]);
+
+            return true;
+        } catch (Throwable $e) {
+            error_log('[PrintFree] session write failed: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    public function destroy(string $id): bool
+    {
+        if (!$this->validId($id)) {
+            return true;
+        }
+
+        try {
+            db_query('DELETE FROM sessions WHERE id = ?', [$id]);
+
+            return true;
+        } catch (Throwable $e) {
+            error_log('[PrintFree] session destroy failed: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    public function gc(int $max_lifetime): int|false
+    {
+        try {
+            return db_query('DELETE FROM sessions WHERE last_activity < ?', [time() - $max_lifetime])->rowCount();
+        } catch (Throwable $e) {
+            error_log('[PrintFree] session gc failed: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    private function validId(string $id): bool
+    {
+        return $id !== '' && strlen($id) <= 128;
+    }
+
+    private function ensureTable(): void
+    {
+        if ($this->tableReady) {
+            return;
+        }
+
+        try {
+            if (db_driver() === 'mysql') {
+                db()->exec(
+                    'CREATE TABLE IF NOT EXISTS sessions (
+                        id VARCHAR(128) NOT NULL,
+                        data LONGTEXT NOT NULL,
+                        last_activity INT UNSIGNED NOT NULL,
+                        PRIMARY KEY (id),
+                        KEY sessions_activity_idx (last_activity)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+                );
+            } else {
+                db()->exec(
+                    'CREATE TABLE IF NOT EXISTS sessions (
+                        id TEXT PRIMARY KEY,
+                        data TEXT NOT NULL,
+                        last_activity INTEGER NOT NULL
+                    )'
+                );
+                db()->exec('CREATE INDEX IF NOT EXISTS idx_sessions_activity ON sessions (last_activity)');
+            }
+
+            $this->tableReady = true;
+        } catch (Throwable $e) {
+            error_log('[PrintFree] session table unavailable: ' . $e->getMessage());
+        }
+    }
+}
+
 function start_app_session(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) {
@@ -23,6 +159,7 @@ function start_app_session(): void
         'samesite' => 'Lax',
     ]);
 
+    session_set_save_handler(new DatabaseSessionHandler(), true);
     session_start();
 
     if (empty($_SESSION['csrf'])) {
