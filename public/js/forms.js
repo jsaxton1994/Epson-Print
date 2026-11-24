@@ -38,6 +38,7 @@
         const grid = zone.querySelector("[data-photo-grid]");
         const list = zone.querySelector("[data-photo-list]");
         const maxBytes = Number(zone.dataset.maxBytes) || 10 * 1024 * 1024;
+        const maxTotalBytes = Number(zone.dataset.maxTotalBytes) || 0;
         const multi = zone.hasAttribute("data-multi");
         const maxFiles = multi ? (Number(zone.dataset.maxFiles) || 10) : 1;
         let objectUrls = [];
@@ -91,7 +92,7 @@
                 if (titleEl) titleEl.textContent = multi ? "Drop your photos here" : "Drop your photo here";
                 if (hintEl) {
                     hintEl.textContent = multi
-                        ? `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB each, ${maxFiles} photos per order`
+                        ? `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB each, ${maxFiles} photos per batch`
                         : `or click to browse — JPG or PNG, up to ${Math.round(maxBytes / 1048576)} MB`;
                 }
                 nameEls.forEach((element) => {
@@ -122,7 +123,7 @@
             }
 
             if (incoming.length > maxFiles) {
-                invalidate(`Please choose no more than ${maxFiles} photos per order.`);
+                invalidate(`Please choose no more than ${maxFiles} photos in one batch.`);
                 return;
             }
 
@@ -139,7 +140,13 @@
 
             const combined = multi ? [...selected(), ...incoming] : incoming.slice(0, 1);
             if (combined.length > maxFiles) {
-                invalidate(`Please choose no more than ${maxFiles} photos per order.`);
+                invalidate(`Please choose no more than ${maxFiles} photos in one batch.`);
+                return;
+            }
+
+            const combinedBytes = combined.reduce((sum, file) => sum + file.size, 0);
+            if (maxTotalBytes > 0 && combinedBytes > maxTotalBytes) {
+                invalidate(`This batch is ${humanSize(combinedBytes)}, but the server accepts up to ${humanSize(maxTotalBytes)} per upload. Choose fewer photos or smaller files.`);
                 return;
             }
 

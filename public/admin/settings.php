@@ -374,10 +374,13 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                 <div class="summary-list">
                     <div class="summary-row"><span>Driver</span><strong><?= e(strtoupper(db_driver())) ?><?= db_using_fallback() ? ' (fallback)' : '' ?></strong></div>
                     <div class="summary-row"><span>Photos per order</span><strong><?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
+                    <div class="summary-row"><span>Photos per batch</span><strong><?= (int) MAX_PHOTOS_PER_BATCH ?></strong></div>
                     <div class="summary-row"><span>Upload limit</span><strong><?= e(MAX_UPLOAD_MB) ?> MB each</strong></div>
+                    <div class="summary-row"><span>Order storage cap</span><strong><?= MAX_ORDER_STORAGE_MB > 0 ? (int) MAX_ORDER_STORAGE_MB . ' MB' : 'No cap' ?></strong></div>
+                    <div class="summary-row"><span>Database size</span><strong><?= e(human_size(database_size_bytes())) ?></strong></div>
                     <div class="summary-row"><span>Price per order</span><strong>Free</strong></div>
                 </div>
-                <p class="help">Photos are stored as BLOBs inside the database, not as files on disk.<?php if (db_using_fallback()): ?> MySQL could not be reached, so the local SQLite file is in use.<?php endif; ?></p>
+                <p class="help">Photos are stored as BLOBs inside the database, not as files on disk. Large orders are added in batches and capped so one order cannot grow without bound.<?php if (db_using_fallback()): ?> MySQL could not be reached, so the local SQLite file is in use.<?php endif; ?></p>
             </div>
         </section>
     </div>

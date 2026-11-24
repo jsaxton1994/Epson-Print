@@ -42,6 +42,23 @@ $epson    = EpsonClient::fromSettings();
 $quality  = quality_options()[$order['print_quality']] ?? ucfirst((string) $order['print_quality']);
 $totalKb  = array_sum(array_map(static fn (array $p): int => (int) $p['file_size'], $photos));
 
+$uploadLimits    = upload_limits();
+$remainingPhotos = max(0, MAX_PHOTOS_PER_ORDER - $count);
+$addBatchLimit   = min(MAX_PHOTOS_PER_BATCH, $remainingPhotos, $uploadLimits['max_files']);
+$storageCap      = MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : 0;
+$storageLeft     = $storageCap > 0 ? max(0, $storageCap - $totalKb) : null;
+$fileLimitMb     = round($uploadLimits['file_bytes'] / 1048576, 1);
+$canAddPhotos    = $order['status'] === 'pending'
+    && $remainingPhotos > 0
+    && $addBatchLimit > 0
+    && ($storageLeft === null || $storageLeft > 0);
+
+// The browser should block a batch the server would reject.
+$batchTotalLimit = $uploadLimits['post_bytes'];
+if ($storageLeft !== null && ($batchTotalLimit === 0 || $storageLeft < $batchTotalLimit)) {
+    $batchTotalLimit = $storageLeft;
+}
+
 app_start(
     'customer',
     'orders',
@@ -94,7 +111,7 @@ app_start(
                 </div>
 
                 <dl class="detail-grid" style="margin-top:24px">
-                    <div><dt>Photos</dt><dd><?= $count ?></dd></div>
+                    <div><dt>Photos</dt><dd><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?></dd></div>
                     <div><dt>Print size</dt><dd><?= e(paper_size_label($order['paper_size'])) ?></dd></div>
                     <div><dt>Colour</dt><dd><?= $order['color_mode'] === 'mono' ? 'Black &amp; white' : 'Colour' ?></dd></div>
                     <div><dt>Border</dt><dd><?= (int) $order['borderless'] === 1 ? 'Borderless' : 'White border' ?></dd></div>
@@ -130,6 +147,55 @@ app_start(
                 <?php endif; ?>
             </div>
         </section>
+
+        <?php if ($order['status'] === 'pending' && $remainingPhotos > 0): ?>
+            <section class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h3>Add more photos</h3>
+                        <p><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in this order · up to <?= (int) $addBatchLimit ?> per batch</p>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <?php if ($canAddPhotos): ?>
+                        <form method="post" action="<?= e(url('customer/add-photos.php?id=' . $orderId)) ?>"
+                              enctype="multipart/form-data" data-submit-once>
+                            <?= csrf_field() ?>
+
+                            <label class="dropzone dropzone-photo" data-dropzone data-multi
+                                   data-max-bytes="<?= (int) $uploadLimits['file_bytes'] ?>"
+                                   data-max-files="<?= (int) $addBatchLimit ?>"
+                                   data-max-total-bytes="<?= (int) $batchTotalLimit ?>">
+                                <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
+                                <span class="dropzone-icon"><?= icon('image') ?></span>
+                                <span class="dropzone-title">Drop more photos here</span>
+                                <span class="dropzone-hint" data-file-hint>
+                                    or click to browse — JPG or PNG, up to <?= e($fileLimitMb) ?> MB each, <?= (int) $addBatchLimit ?> photos per batch
+                                </span>
+                                <span class="dropzone-grid" data-photo-grid></span>
+                                <span class="dropzone-list" data-photo-list></span>
+                                <span class="dropzone-file" data-file-name></span>
+                            </label>
+
+                            <p class="help">
+                                <?= $remainingPhotos ?> photo<?= $remainingPhotos === 1 ? '' : 's' ?> left in this order.
+                                <?php if ($storageCap > 0): ?>
+                                    Storage used: <?= e(human_size($totalKb)) ?> of <?= e(human_size($storageCap)) ?>.
+                                <?php endif; ?>
+                            </p>
+
+                            <button class="btn btn-primary" type="submit"><?= icon('plus') ?> Add photos</button>
+                        </form>
+                    <?php else: ?>
+                        <p class="help mb-0">
+                            <?= $storageLeft !== null && $storageLeft <= 0
+                                ? 'This order has reached its ' . MAX_ORDER_STORAGE_MB . ' MB storage limit. Start a new order for more photos.'
+                                : 'This server cannot accept more photos right now.' ?>
+                        </p>
+                    <?php endif; ?>
+                </div>
+            </section>
+        <?php endif; ?>
 
         <section class="panel">
             <div class="panel-head"><h3>Photo details</h3></div>

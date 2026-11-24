@@ -1,6 +1,6 @@
 <?php
 /**
- * Submit a new photo print order (up to MAX_PHOTOS_PER_ORDER photos).
+ * Submit a new photo print order (first batch of up to MAX_PHOTOS_PER_BATCH photos).
  */
 
 declare(strict_types=1);
@@ -16,6 +16,10 @@ $accepting = setting('accepting_orders', '1') === '1';
 $papers    = paper_size_options();
 $qualities = quality_options();
 
+$limits     = upload_limits();
+$batchLimit = min(MAX_PHOTOS_PER_BATCH, $limits['max_files']);
+$fileLimit  = round($limits['file_bytes'] / 1048576, 1);
+
 $paper      = setting('default_paper_size', '4x6');
 $quality    = setting('default_print_quality', 'high');
 $color      = 'color';
@@ -30,6 +34,12 @@ if (!array_key_exists($quality, $qualities)) {
 }
 
 if (is_post()) {
+    if (post_request_too_large()) {
+        $serverLimit = ini_bytes((string) ini_get('post_max_size'));
+        flash('error', 'That upload is larger than this server accepts in one request (' . human_size($serverLimit) . '). Add fewer or smaller photos, or ask the host to raise post_max_size.');
+        redirect('customer/new-order.php');
+    }
+
     verify_csrf();
 
     $paper      = in_array(input('paper_size'), array_keys($papers), true) ? input('paper_size') : '4x6';
@@ -44,7 +54,11 @@ if (is_post()) {
         $orderId = 0;
 
         try {
-            $files = validate_photo_uploads(normalize_uploaded_files($_FILES['photos'] ?? []));
+            $files = validate_photo_uploads(
+                normalize_uploaded_files($_FILES['photos'] ?? []),
+                $batchLimit,
+                MAX_ORDER_STORAGE_MB > 0 ? MAX_ORDER_STORAGE_MB * 1024 * 1024 : null
+            );
 
             $orderId = db_insert('orders', [
                 'reference'     => generate_reference(),
@@ -72,9 +86,10 @@ if (is_post()) {
                 $user['name']
             );
 
-            flash('success', $count === 1
-                ? 'Your photo is in the queue. We will print it as soon as possible.'
-                : $count . ' photos are in the queue. We will print them in order.');
+            flash('success', ($count === 1
+                ? 'Your photo is in the queue.'
+                : $count . ' photos are in the queue.')
+                . ' You can add more photos to this order in batches of ' . $batchLimit . ' — up to ' . MAX_PHOTOS_PER_ORDER . ' in total.');
             redirect('customer/order.php?id=' . $orderId);
         } catch (RuntimeException $e) {
             if ($orderId > 0) {
@@ -86,7 +101,12 @@ if (is_post()) {
     }
 }
 
-app_start('customer', 'new', 'New photo order', 'Upload up to ' . MAX_PHOTOS_PER_ORDER . ' photos and choose how they should be printed.');
+app_start(
+    'customer',
+    'new',
+    'New photo order',
+    'Start with up to ' . $batchLimit . ' photos, then add more until ' . MAX_PHOTOS_PER_ORDER . ' per order.'
+);
 ?>
 
 <?php if (!$accepting): ?>
@@ -114,22 +134,28 @@ app_start('customer', 'new', 'New photo order', 'Upload up to ' . MAX_PHOTOS_PER
             <div class="form-section">
                 <div class="form-section-head">
                     <h3>1. Your photos</h3>
-                    <span>JPG or PNG · up to <?= (int) MAX_PHOTOS_PER_ORDER ?></span>
+                    <span>JPG or PNG · up to <?= (int) $batchLimit ?> now</span>
                 </div>
 
                 <label class="dropzone dropzone-photo" data-dropzone data-multi
-                       data-max-bytes="<?= (int) (MAX_UPLOAD_MB * 1024 * 1024) ?>"
-                       data-max-files="<?= (int) MAX_PHOTOS_PER_ORDER ?>">
+                       data-max-bytes="<?= (int) $limits['file_bytes'] ?>"
+                       data-max-files="<?= (int) $batchLimit ?>"
+                       data-max-total-bytes="<?= (int) $limits['post_bytes'] ?>">
                     <input type="file" name="photos[]" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple required>
                     <span class="dropzone-icon"><?= icon('image') ?></span>
                     <span class="dropzone-title">Drop your photos here</span>
                     <span class="dropzone-hint" data-file-hint>
-                        or click to browse — JPG or PNG, up to <?= e(MAX_UPLOAD_MB) ?> MB each, <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order
+                        or click to browse — JPG or PNG, up to <?= e($fileLimit) ?> MB each, <?= (int) $batchLimit ?> photos per batch
                     </span>
                     <span class="dropzone-grid" data-photo-grid></span>
                     <span class="dropzone-list" data-photo-list></span>
                     <span class="dropzone-file" data-file-name></span>
                 </label>
+
+                <p class="help">
+                    Add up to <?= (int) $batchLimit ?> photos now. After the order is created you can add more batches to it,
+                    up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in total.
+                </p>
             </div>
 
             <div class="form-section">
@@ -237,12 +263,12 @@ app_start('customer', 'new', 'New photo order', 'Upload up to ' . MAX_PHOTOS_PER
                     <span class="doc-icon"><?= icon('image') ?></span>
                     <span class="doc-text">
                         <span class="doc-name" data-file-name>No photos chosen</span>
-                        <span class="doc-meta">JPG or PNG · <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order</span>
+                        <span class="doc-meta">JPG or PNG · <?= (int) $batchLimit ?> photos per batch</span>
                     </span>
                 </div>
 
                 <div class="summary-list">
-                    <div class="summary-row"><span>Photos</span><strong data-summary="photos">0 of <?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
+                    <div class="summary-row"><span>Photos</span><strong data-summary="photos">0 of <?= (int) $batchLimit ?></strong></div>
                     <div class="summary-row"><span>Print size</span><strong data-summary="paper"><?= e(paper_size_label($paper)) ?></strong></div>
                     <div class="summary-row"><span>Border</span><strong data-summary="borderless"><?= $borderless === 1 ? 'Borderless' : 'White border' ?></strong></div>
                     <div class="summary-row"><span>Colour</span><strong data-summary="color"><?= e($color === 'mono' ? 'Black & white' : 'Colour') ?></strong></div>
@@ -254,7 +280,7 @@ app_start('customer', 'new', 'New photo order', 'Upload up to ' . MAX_PHOTOS_PER
                 <button class="btn btn-primary btn-lg btn-block mt-3" type="submit" <?= $accepting ? '' : 'disabled' ?>>
                     <?= icon('printer') ?> Send photos to the printer
                 </button>
-                <p class="summary-note">Each photo prints once. You can follow the print from your dashboard and cancel it any time while it is still in the queue.</p>
+                <p class="summary-note">Each photo prints once. You can follow the print from your dashboard and cancel it any time while it is still in the queue. Need more than one batch? Add more photos from the order page — up to <?= (int) MAX_PHOTOS_PER_ORDER ?> in total.</p>
             </div>
         </section>
 

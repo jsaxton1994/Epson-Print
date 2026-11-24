@@ -214,6 +214,22 @@ function time_ago(?string $value): string
     return date('j M Y', $timestamp);
 }
 
+function database_size_bytes(): int
+{
+    if (db_driver() === 'sqlite') {
+        return is_file(DB_SQLITE_PATH) ? (int) filesize(DB_SQLITE_PATH) : 0;
+    }
+
+    try {
+        return (int) db_val(
+            'SELECT COALESCE(SUM(data_length + index_length), 0)
+             FROM information_schema.TABLES WHERE table_schema = DATABASE()'
+        );
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
 function human_size(int $bytes): string
 {
     if ($bytes <= 0) {
@@ -318,6 +334,17 @@ function order_photos(int $orderId): array
 function order_photo_count(int $orderId): int
 {
     return (int) db_val('SELECT COUNT(*) FROM order_photos WHERE order_id = ?', [$orderId]);
+}
+
+/**
+ * Total bytes of full-size photo data stored for one order.
+ */
+function order_storage_bytes(int $orderId): int
+{
+    return (int) db_val(
+        'SELECT COALESCE(SUM(file_size), 0) FROM order_photos WHERE order_id = ?',
+        [$orderId]
+    );
 }
 
 /**
@@ -506,13 +533,85 @@ function normalize_uploaded_files(array $field): array
 }
 
 /**
+ * Parse a php.ini size value ("8M", "512K", "1G") into bytes. 0 means the
+ * setting is unlimited or not configured.
+ */
+function ini_bytes(string $value): int
+{
+    $value = trim($value);
+    if ($value === '') {
+        return 0;
+    }
+
+    $unit   = strtolower(substr($value, -1));
+    $number = (float) $value;
+
+    return (int) match ($unit) {
+        'g' => $number * 1024 ** 3,
+        'm' => $number * 1024 ** 2,
+        'k' => $number * 1024,
+        default => $number,
+    };
+}
+
+/**
+ * Effective upload limits after PHP's ini settings are applied. Hosts such as
+ * Wasmer or shared hosting often allow less than MAX_UPLOAD_MB per file or per
+ * request, so the forms and validation use these numbers instead of guessing.
+ *
+ * @return array{file_bytes:int, post_bytes:int, max_files:int}
+ */
+function upload_limits(): array
+{
+    $fileBytes = MAX_UPLOAD_MB * 1024 * 1024;
+    $iniFile   = ini_bytes((string) ini_get('upload_max_filesize'));
+    $iniPost   = ini_bytes((string) ini_get('post_max_size'));
+
+    if ($iniFile > 0) {
+        $fileBytes = min($fileBytes, $iniFile);
+    }
+    if ($iniPost > 0) {
+        $fileBytes = min($fileBytes, $iniPost);
+    }
+
+    $maxFiles = MAX_PHOTOS_PER_BATCH;
+    $iniFiles = (int) ini_get('max_file_uploads');
+    if ($iniFiles > 0) {
+        $maxFiles = min($maxFiles, $iniFiles);
+    }
+
+    return [
+        'file_bytes' => max(1, $fileBytes),
+        'post_bytes' => max(0, $iniPost),
+        'max_files'  => max(1, $maxFiles),
+    ];
+}
+
+/**
+ * True when PHP discarded a POST because it was larger than post_max_size.
+ * In that case $_POST and $_FILES are empty, so this must be checked before
+ * CSRF validation to show a useful message instead of a generic failure.
+ */
+function post_request_too_large(): bool
+{
+    if (!is_post()) {
+        return false;
+    }
+
+    $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+    $max    = ini_bytes((string) ini_get('post_max_size'));
+
+    return $length > 0 && $max > 0 && $length > $max;
+}
+
+/**
  * Check how many photos arrived and that the selection is allowed. Keeps the
  * files on disk untouched — each one is read and stored individually.
  *
  * @param array<int,array{name:string,type:string,tmp_name:string,error:int,size:int}> $files
  * @return array<int,array{name:string,type:string,tmp_name:string,error:int,size:int}>
  */
-function validate_photo_uploads(array $files): array
+function validate_photo_uploads(array $files, ?int $maxFiles = null, ?int $maxTotalBytes = null): array
 {
     $files = array_values(array_filter(
         $files,
@@ -523,11 +622,16 @@ function validate_photo_uploads(array $files): array
         throw new RuntimeException('Please choose at least one photo to upload.');
     }
 
-    if (count($files) > MAX_PHOTOS_PER_ORDER) {
-        throw new RuntimeException('You can send up to ' . MAX_PHOTOS_PER_ORDER . ' photos per order.');
+    $limits   = upload_limits();
+    $maxFiles = max(1, min($maxFiles ?? MAX_PHOTOS_PER_BATCH, $limits['max_files']));
+
+    if (count($files) > $maxFiles) {
+        throw new RuntimeException(
+            'You can add up to ' . $maxFiles . ' photo' . ($maxFiles === 1 ? '' : 's') . ' in one batch.'
+        );
     }
 
-    $maxBytes = MAX_UPLOAD_MB * 1024 * 1024;
+    $maxBytes = $limits['file_bytes'];
 
     foreach ($files as $file) {
         $size = (int) ($file['size'] ?? 0);
@@ -541,13 +645,29 @@ function validate_photo_uploads(array $files): array
         }
 
         if ($size > $maxBytes) {
-            throw new RuntimeException('Please keep photos under ' . MAX_UPLOAD_MB . ' MB each.');
+            throw new RuntimeException('Please keep photos under ' . human_size($maxBytes) . ' each on this server.');
         }
 
         $extension = strtolower(pathinfo(trim((string) ($file['name'] ?? '')), PATHINFO_EXTENSION));
         if (!in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
             throw new RuntimeException('Only JPG and PNG photos can be printed.');
         }
+    }
+
+    $totalBytes = array_sum(array_map(static fn (array $file): int => (int) ($file['size'] ?? 0), $files));
+
+    if ($maxTotalBytes !== null && $maxTotalBytes > 0 && $totalBytes > $maxTotalBytes) {
+        throw new RuntimeException(
+            'That batch is ' . human_size($totalBytes) . ', but only ' . human_size($maxTotalBytes)
+            . ' of space is available here. Choose fewer photos or smaller files.'
+        );
+    }
+
+    if ($limits['post_bytes'] > 0 && $totalBytes > $limits['post_bytes']) {
+        throw new RuntimeException(
+            'That batch is ' . human_size($totalBytes) . ', larger than this server accepts in one upload ('
+            . human_size($limits['post_bytes']) . '). Add photos in smaller batches.'
+        );
     }
 
     return $files;
@@ -573,14 +693,17 @@ function upload_error_message(int $code): string
  * Called once per file so only a single photo (at most MAX_UPLOAD_MB) is held
  * in memory at a time, rather than the whole order.
  */
-function insert_photo_upload(int $orderId, array $file, int $position): void
+function insert_photo_upload(int $orderId, array $file, int $position): int
 {
     $photo = read_photo_upload($file, $position);
 
     insert_order_photo($orderId, $photo);
+    $photoId = (int) db()->lastInsertId();
 
     // Release the full-size bytes before the next file is read.
     unset($photo['data'], $photo['thumb']);
+
+    return $photoId;
 }
 
 /**
@@ -596,14 +719,14 @@ function read_photo_upload(array $file, int $position): array
         throw new RuntimeException(upload_error_message((int) $file['error']));
     }
 
-    $maxBytes = MAX_UPLOAD_MB * 1024 * 1024;
+    $maxBytes = upload_limits()['file_bytes'];
     $size     = (int) ($file['size'] ?? 0);
 
     if ($size <= 0) {
         throw new RuntimeException('One of those files looks empty. Please choose another photo.');
     }
     if ($size > $maxBytes) {
-        throw new RuntimeException('Please keep photos under ' . MAX_UPLOAD_MB . ' MB each.');
+        throw new RuntimeException('Please keep photos under ' . human_size($maxBytes) . ' each on this server.');
     }
 
     $original  = trim((string) ($file['name'] ?? 'photo.jpg'));

@@ -72,9 +72,20 @@ const DB_SQLITE_PATH = __DIR__ . '/../storage/database.sqlite';
 
 const MAX_UPLOAD_MB = 10;
 
-// Epson's printable-file rules allow 10 files per print submission, and each
-// photo is uploaded to its own print job.
-const MAX_PHOTOS_PER_ORDER = 10;
+// An order can hold up to 100 photos. They are added in batches of at most
+// 10 so one upload request stays inside PHP's post size and memory limits.
+const MAX_PHOTOS_PER_ORDER = 100;
+const MAX_PHOTOS_PER_BATCH = 10;
+
+// Stop a single order from growing without bound. 0 disables the cap.
+const MAX_ORDER_STORAGE_MB = 500;
+
+// Printing and status checks work through a slice per request, then ask the
+// admin to continue, so a 100-photo order cannot time out one request.
+const PRINT_BATCH_MAX = 10;
+const PRINT_BATCH_SECONDS = 20;
+const STATUS_BATCH_MAX = 25;
+const STATUS_BATCH_SECONDS = 20;
 
 
 /* -------------------------------------------------------------------------
