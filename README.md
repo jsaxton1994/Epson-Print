@@ -2,7 +2,7 @@
 
 A completely free **photo** printing service for an **Epson ET-2926**, built in plain PHP with a database, and powered by the **Epson Connect API v2**.
 
-Customers build orders of up to **500 photos** — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches (or mark them printed manually), and manage customers. No payments, allowances or credits anywhere.
+Customers build orders of up to **100 photos** — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches (or mark them printed manually), and manage customers. No payments, allowances or credits anywhere.
 
 Demo accounts:
 
@@ -53,7 +53,7 @@ index.php            redirects to the public site when the root is the docroot
 
 ## Orders and photos
 
-An order is a print header (customer, size, finish, colour, quality, notes) with **1–500 photos** attached. Each upload request carries at most **10 photos**, and the browser chains those requests automatically for a large selection. Each photo gets its own row in `order_photos`, its own status and its own Epson job id, so one bad file does not mark the whole order as printed.
+An order is a print header (customer, size, finish, colour, quality, notes) with **1–100 photos** attached. Each upload request carries at most **10 photos**, and the browser chains those requests automatically for a large selection. Each photo gets its own row in `order_photos`, its own status and its own Epson job id, so one bad file does not mark the whole order as printed.
 
 While an order is still `pending`, the customer can add more photos from the order page. The endpoint checks ownership, CSRF, the order status, the photo count and the order's storage budget, inserts each batch one photo at a time, and rolls that batch back if any file fails. The browser remembers how many photos were already added, so a failed chunk can be retried without duplicating earlier ones.
 
@@ -74,10 +74,10 @@ The order status is derived from its photos:
 
 ## The photo flow
 
-1. A customer selects up to 500 photos. The browser accepts any common image type and converts HEIC/TIFF with the bundled decoders, validates size, then uploads the selection in chunks of at most 10 (smaller when the host's `post_max_size` requires it). Each photo is decoded again on the server, up to 10 MB.
+1. A customer selects up to 100 photos. The browser accepts any common image type and converts HEIC/TIFF with the bundled decoders, validates size, then uploads the selection in chunks of at most 10 (smaller when the host's `post_max_size` requires it). Each photo is decoded again on the server, up to 10 MB.
 2. The first chunk creates the order with the chosen print settings; the remaining chunks are sent to `customer/add-photos.php` under the same order. A progress line shows how many photos have been uploaded, and a failed chunk can be retried from where it stopped.
 3. Each photo is normalised before storage: JPEG and PNG keep their bytes, while WebP, GIF, BMP, AVIF and TGA are converted to JPEG with GD. HEIC and TIFF are converted in the browser by the bundled decoders; direct uploads of those formats also use Imagick when the server has it. Transparency is flattened onto white. Stored BLOBs in `order_photos.image_data` are therefore always printable, and nothing is written to disk — one file at a time, so a request never holds more than a single photo in memory. A small JPEG preview is generated with GD and stored in `thumb_data`; list pages and galleries load that instead of the full-size photo.
-4. An administrator opens the order and presses **Print**. The site creates **one Epson job per photo**, uploading up to `PRINT_BATCH_MAX` photos per click with a `PRINT_BATCH_SECONDS` wall-clock budget, then asks the admin to continue. A 500-photo order is therefore finished over several clicks instead of one long request.
+4. An administrator opens the order and presses **Print**. The site creates **one Epson job per photo**, uploading up to `PRINT_BATCH_MAX` photos per click with a `PRINT_BATCH_SECONDS` wall-clock budget, then asks the admin to continue. A 100-photo order is therefore finished over several clicks instead of one long request.
 5. Epson job status is refreshed in batches too (`STATUS_BATCH_MAX` / `STATUS_BATCH_SECONDS`), and the customer sees the timeline and per-photo status update.
 
 Epson's upload endpoint accepts a single file per job (`File=1.jpg`), so a multi-photo order is sent as several jobs, one after another. Because each photo is its own job, Epson's printable-file limit no longer caps the order size.
@@ -126,7 +126,7 @@ Until the printer is linked, orders can still be managed and marked printed by h
 ## Customising
 
 - Site name, support email, default print size/quality and the queue pause switch: **Admin → Settings**.
-- Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 500) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
+- Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 100) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
 - Per-photo upload limit: `MAX_UPLOAD_MB` in `includes/config.php` (Epson allows 10 MB for photo mode). The effective limit is the smaller of this and PHP's `upload_max_filesize` / `post_max_size`.
 - Batch and status work: `PRINT_BATCH_MAX`, `PRINT_BATCH_SECONDS`, `STATUS_BATCH_MAX` and `STATUS_BATCH_SECONDS` in `includes/config.php`.
 - Storage: photos live in the database as BLOBs, so the SQLite file (or MySQL database) grows with every upload. Each order is capped at `MAX_ORDER_STORAGE_MB` (default 5000 MB / 4.9 GB; `0` disables the cap). Photos are inserted one at a time; thumbnails are capped at a 480 px long edge and skipped for images above 30 MP or when GD is unavailable. Admin → Settings shows the current database size.

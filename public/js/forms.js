@@ -68,7 +68,7 @@
 
             if (grid) {
                 grid.innerHTML = "";
-                // Preview only the first few; a 500-photo selection must stay light.
+                // Preview only the first few; a 100-photo selection must stay light.
                 files.slice(0, 12).forEach((file) => {
                     const url = URL.createObjectURL(file);
                     objectUrls.push(url);
