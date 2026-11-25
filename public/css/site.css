@@ -1078,7 +1078,7 @@
     .split { grid-template-columns: 1fr; gap: 34px; }
     .promise-band { grid-template-columns: 1fr; gap: 30px; padding: 40px; }
     .auth-grid { grid-template-columns: 1fr; max-width: 580px; }
-    .auth-side { min-height: 320px; }
+    .auth-side { min-height: 0; align-self: start; }
     .auth-points { margin-top: 6px; }
 }
 
