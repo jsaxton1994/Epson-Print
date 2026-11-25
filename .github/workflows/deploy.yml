@@ -1,0 +1,84 @@
+name: Deploy to snapprints.co.uk
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: cPanel pull and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deployment secrets
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPO_ROOT: ${{ secrets.CPANEL_REPO_ROOT }}
+        run: |
+          missing=0
+          [ -n "$CPANEL_HOST" ] || { echo "::error::Add the CPANEL_HOST repository secret."; missing=1; }
+          [ -n "$CPANEL_USERNAME" ] || { echo "::error::Add the CPANEL_USERNAME repository secret."; missing=1; }
+          [ -n "$CPANEL_API_TOKEN" ] || { echo "::error::Add the CPANEL_API_TOKEN repository secret."; missing=1; }
+          [ -n "$CPANEL_REPO_ROOT" ] || { echo "::error::Add the CPANEL_REPO_ROOT repository secret."; missing=1; }
+          exit "$missing"
+
+      - name: Ask cPanel to pull main and run .cpanel.yml
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_PORT: ${{ secrets.CPANEL_PORT }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPO_ROOT: ${{ secrets.CPANEL_REPO_ROOT }}
+        run: |
+          set -euo pipefail
+
+          host="${CPANEL_HOST#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          host="${host%:2083}"
+          port="${CPANEL_PORT:-2083}"
+
+          response=$(curl -sS --fail-with-body --max-time 90 \
+            -H "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --get "https://${host}:${port}/execute/VersionControlDeployment/create" \
+            --data-urlencode "repository_root=${CPANEL_REPO_ROOT}")
+
+          jq '{status: .result.status, deploy_id: .result.data.deploy_id, errors: .result.errors, messages: .result.messages}' <<<"$response"
+
+          if [ "$(jq -r '.result.status // 0' <<<"$response")" != "1" ]; then
+            echo "::error::cPanel refused the deployment (see the errors above)."
+            exit 1
+          fi
+
+      - name: Confirm the deployed version is live
+        env:
+          SITE_URL: https://snapprints.co.uk/public/index.php
+        run: |
+          set -euo pipefail
+
+          version=$(grep -oP "const APP_VERSION\s*=\s*'\K[^']+" includes/config.php)
+          echo "Waiting for v${version} at ${SITE_URL}"
+
+          for attempt in $(seq 1 18); do
+            body=$(curl -fsS --max-time 20 "$SITE_URL" || true)
+            if grep -q "footer-version\">v${version}<" <<<"$body"; then
+              echo "Live version confirmed: v${version}"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::error::Deployment was accepted, but v${version} was not live after 3 minutes. Check the cPanel deployment log."
+          exit 1

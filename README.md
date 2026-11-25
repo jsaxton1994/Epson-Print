@@ -135,3 +135,19 @@ Until the printer is linked, orders can still be managed and marked printed by h
 - If PHP discards an oversized POST, the upload pages detect it and show a friendly "smaller batch" message instead of a CSRF error.
 - Styling: `public/css/base.css` holds the tokens (colours, radii, shadows); `site.css` is the public website and `dashboard.css` the signed-in areas.
 - Photo formats: GD handles JPG, PNG, WebP, GIF, BMP, AVIF, TGA and friends; the bundled `heic2any` and `UTIF.js` decoders convert HEIC/TIFF in the browser, so no PHP extension is required. Imagick is used as a server-side fallback when available. Both bundled libraries are MIT licensed — see `public/js/vendor/*.LICENSE*`.
+
+## Deploying
+
+Every push to `main` runs `.github/workflows/deploy.yml`, which asks cPanel to pull the repository and run `.cpanel.yml` (copying the site into `public_html`). The workflow then waits for the footer version to appear on <https://snapprints.co.uk>, so a failed or incomplete deployment is visible in the Actions tab.
+
+Add these under **GitHub → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+| --- | --- |
+| `CPANEL_HOST` | cPanel server hostname, without `https://` or a port (use the hostname in your cPanel address bar, e.g. `server123.example.com`) |
+| `CPANEL_USERNAME` | cPanel account username |
+| `CPANEL_API_TOKEN` | token from **cPanel → Security → Manage API Tokens** |
+| `CPANEL_REPO_ROOT` | repository path from **cPanel → Git Version Control**, e.g. `/home/snapprin/repositories/Epson-Print` |
+| `CPANEL_PORT` | optional; defaults to `2083` |
+
+Bump `APP_VERSION` in `includes/config.php` with each release; the workflow checks that exact version on the live site.
