@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.0.11';
+const APP_VERSION = '1.0.12';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -30,17 +30,38 @@ const APP_URL = '';
 /* -------------------------------------------------------------------------
  |  Database
  |
- |  Live MySQL database from cPanel. Edit these values directly.
+ |  Non-secret connection details for the live cPanel MySQL database.
+ |  The password belongs in includes/config.local.php, which is gitignored
+ |  and overrides these defaults. Copy config.local.example.php to create it.
+ |  This file therefore stays safe to publish.
+ |
  |  If MySQL cannot be reached, db.php falls back to the local SQLite file
  |  at DB_SQLITE_PATH so the site stays available.
  * ---------------------------------------------------------------------- */
 
-const DB_DRIVER = 'mysql';
-const DB_HOST   = 'localhost';
-const DB_PORT   = 3306;
-const DB_NAME   = 'snapprin_snapprints';
-const DB_USER   = 'snapprin_snapprints';
-const DB_PASS   = '(O4#K*s?gnK]n6U;';
+$dbConfig = [
+    'driver' => 'mysql',
+    'host'   => 'localhost',
+    'port'   => 3306,
+    'name'   => 'snapprin_snapprints',
+    'user'   => 'snapprin_snapprints',
+    'pass'   => '',
+];
+
+$configLocal = __DIR__ . '/config.local.php';
+if (is_file($configLocal)) {
+    $overrides = require $configLocal;
+    if (is_array($overrides)) {
+        $dbConfig = array_replace($dbConfig, array_intersect_key($overrides, $dbConfig));
+    }
+}
+
+define('DB_DRIVER', $dbConfig['driver'] === 'mysql' ? 'mysql' : 'sqlite');
+define('DB_HOST', (string) $dbConfig['host']);
+define('DB_PORT', (int) $dbConfig['port']);
+define('DB_NAME', (string) $dbConfig['name']);
+define('DB_USER', (string) $dbConfig['user']);
+define('DB_PASS', (string) $dbConfig['pass']);
 
 const DB_SQLITE_PATH = __DIR__ . '/../storage/database.sqlite';
 

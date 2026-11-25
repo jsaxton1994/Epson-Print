@@ -2,6 +2,9 @@
 /storage/database.sqlite
 /storage/logs/*
 
+# Live database password (copy includes/config.local.example.php)
+/includes/config.local.php
+
 # Local screenshots and preview artifacts
 /artifacts/
 

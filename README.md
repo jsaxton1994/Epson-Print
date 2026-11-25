@@ -85,11 +85,11 @@ Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the pri
 
 ## Database
 
-The live site uses the MySQL database created in cPanel. Its connection details are the `DB_*` constants near the top of `includes/config.php`: host (`localhost`), port, database name, user and password. When the `users` table is missing, the installer creates the tables, default settings and the two demo accounts.
+The live site uses the MySQL database created in cPanel. The non-secret connection defaults (host `localhost`, port, database and user) are in `includes/config.php`. When the `users` table is missing, the installer creates the tables, default settings and the two demo accounts.
 
 **If MySQL cannot be reached, `includes/db.php` falls back to `storage/database.sqlite`** so the site stays available. Admin → Settings shows the driver actually in use and marks a fallback. The SQLite and MySQL schemas are embedded in `includes/installer.php`, so there are no schema files to import or maintain.
 
-The database password is stored in `includes/config.php`; treat that file as a secret before sharing or making the repository public.
+The password is **not** in `includes/config.php`. Copy `includes/config.local.example.php` to `includes/config.local.php` on the server and fill in `pass`; the local file is gitignored and overrides the defaults. This keeps `config.php` safe to publish. Deployments merge files with `cp`, so an existing `config.local.php` is preserved.
 
 ## Connecting the Epson ET-2926
 
