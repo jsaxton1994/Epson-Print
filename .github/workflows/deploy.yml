@@ -50,18 +50,50 @@ jobs:
           host="${host%:2083}"
           port="${CPANEL_PORT:-2083}"
 
-          response_file=$(mktemp)
-          trap 'rm -f "$response_file"' EXIT
+          # Try the configured host first. If it cannot complete a TLS
+          # handshake (for example a bare IP with no matching certificate),
+          # fall back to the site's cPanel hostname and its server hostname.
+          # All of these resolve to the same cPanel server.
+          candidates=()
+          add_candidate() {
+            local candidate="$1"
+            local existing
+            for existing in "${candidates[@]}"; do
+              [ "$existing" = "$candidate" ] && return 0
+            done
+            candidates+=("$candidate")
+          }
 
-          # Capture the body and HTTP status separately: --fail would discard the
-          # body, which is exactly where cPanel explains a rejection.
-          curl_status=0
-          http_code=$(curl -sS --max-time 90 -o "$response_file" -w '%{http_code}' \
-            -H "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
-            --get "https://${host}:${port}/execute/VersionControlDeployment/create" \
-            --data-urlencode "repository_root=${CPANEL_REPO_ROOT}") || curl_status=$?
+          add_candidate "${host}:${port}"
+          add_candidate "cpanel.snapprints.co.uk:2083"
+          site_ip=$(getent ahostsv4 snapprints.co.uk 2>/dev/null | awk 'NR==1 {print $1}')
+          if [ -n "$site_ip" ]; then
+            server_host=$(getent hosts "$site_ip" 2>/dev/null | awk 'NR==1 {print $2}' | sed 's/\.$//')
+            [ -n "$server_host" ] && add_candidate "${server_host}:2083"
+          fi
 
-          response=$(cat "$response_file")
+          connected=0
+          http_code=""
+          response=""
+          for candidate in "${candidates[@]}"; do
+            echo "Trying cPanel API at https://${candidate} …"
+            response_file=$(mktemp)
+            curl_status=0
+            http_code=$(curl -sS --max-time 60 -o "$response_file" -w '%{http_code}' \
+              -H "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+              --get "https://${candidate}/execute/VersionControlDeployment/create" \
+              --data-urlencode "repository_root=${CPANEL_REPO_ROOT}") || curl_status=$?
+            response=$(cat "$response_file")
+            rm -f "$response_file"
+
+            if [ "$curl_status" -eq 0 ]; then
+              connected=1
+              echo "Connected to ${candidate} (HTTP ${http_code})."
+              break
+            fi
+
+            echo "::warning::Could not reach ${candidate} (curl exit ${curl_status}, HTTP ${http_code:-none})."
+          done
 
           print_cpanel_failure() {
             echo "::error::$1"
@@ -75,8 +107,10 @@ jobs:
             fi
           }
 
-          if [ "$curl_status" -ne 0 ]; then
-            print_cpanel_failure "cPanel API request failed (curl exit ${curl_status}, HTTP ${http_code:-none})."
+          if [ "$connected" -ne 1 ]; then
+            echo "::error::Could not reach the cPanel API on any candidate host. Set CPANEL_HOST=cpanel.snapprints.co.uk and CPANEL_PORT=2083, then re-run."
+            echo "--- last cPanel response body ---"
+            printf '%s\n' "$response"
             exit 1
           fi
 
