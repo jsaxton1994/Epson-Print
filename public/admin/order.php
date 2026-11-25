@@ -95,16 +95,25 @@ if (is_post()) {
         $batch     = array_slice($toSend, 0, PRINT_BATCH_MAX);
         $sent      = 0;
         $failed    = 0;
+        $skipped   = 0;
         $errors    = [];
         $startedAt = microtime(true);
+
+        // A single-photo reprint may target a completed or cancelled photo;
+        // never target one that is already printing.
+        $allowedStatuses = $action === 'print_photo'
+            ? ['pending', 'failed', 'completed', 'cancelled']
+            : ['pending', 'failed'];
 
         foreach ($batch as $index => $photo) {
             if ($index > 0 && (microtime(true) - $startedAt) >= PRINT_BATCH_SECONDS) {
                 break;
             }
 
-            $result = send_photo_to_printer($epson, $order, $photo);
-            if ($result['ok']) {
+            $result = send_photo_to_printer($epson, $order, $photo, $allowedStatuses);
+            if (!empty($result['skipped'])) {
+                $skipped++;
+            } elseif ($result['ok']) {
                 $sent++;
             } else {
                 $failed++;
@@ -112,12 +121,15 @@ if (is_post()) {
             }
         }
 
-        $remaining = max(0, count($toSend) - $sent - $failed);
+        $remaining = max(0, count($toSend) - $sent - $failed - $skipped);
 
         sync_order_status($orderId, (string) $admin['name']);
 
         if ($sent > 0) {
             flash('success', $sent . ' photo' . ($sent === 1 ? '' : 's') . ' sent to the printer. They print in queue order.');
+        }
+        if ($skipped > 0) {
+            flash('info', $skipped . ' photo' . ($skipped === 1 ? ' was' : 's were') . ' already being sent by another process and skipped.');
         }
         if ($errors !== []) {
             flash('error', 'Could not send ' . $failed . ' photo' . ($failed === 1 ? '' : 's') . '. ' . implode(' ', array_slice($errors, 0, 2)));

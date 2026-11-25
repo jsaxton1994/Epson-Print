@@ -66,8 +66,9 @@ try {
              LIMIT 5"
         );
 
-        $sentTotal   = 0;
-        $failedTotal = 0;
+        $sentTotal    = 0;
+        $failedTotal  = 0;
+        $skippedTotal = 0;
 
         foreach ($orders as $order) {
             if (microtime(true) >= $sendDeadline) {
@@ -84,15 +85,22 @@ try {
                 continue;
             }
 
-            $batch = array_slice($pending, 0, PRINT_BATCH_MAX);
-            $sent  = 0;
+            $batch   = array_slice($pending, 0, PRINT_BATCH_MAX);
+            $sent    = 0;
+            $skipped = 0;
 
             foreach ($batch as $index => $photo) {
                 if ($index > 0 && microtime(true) >= $sendDeadline) {
                     break;
                 }
 
-                $result = send_photo_to_printer($epson, $order, $photo);
+                $result = send_photo_to_printer($epson, $order, $photo, ['pending']);
+
+                if (!empty($result['skipped'])) {
+                    $skipped++;
+                    $skippedTotal++;
+                    continue;
+                }
 
                 if (!$result['ok']) {
                     $failedTotal++;
@@ -108,7 +116,7 @@ try {
                 continue;
             }
 
-            $remaining = max(0, count($pending) - $sent);
+            $remaining = max(0, count($pending) - $sent - $skipped);
             $status    = sync_order_status($orderId, 'Cron');
 
             // sync_order_status keeps an accepted order accepted while photos
@@ -126,6 +134,11 @@ try {
             $messages[] = $order['reference'] . ': ' . $sent . ' photo'
                 . ($sent === 1 ? '' : 's') . ' sent'
                 . ($remaining > 0 ? ', ' . $remaining . ' waiting' : '');
+        }
+
+        if ($skippedTotal > 0) {
+            $messages[] = $skippedTotal . ' photo' . ($skippedTotal === 1 ? '' : 's')
+                . ' skipped because another process was already sending it.';
         }
 
         if ($failedTotal > 0) {

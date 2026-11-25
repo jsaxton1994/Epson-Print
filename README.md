@@ -97,7 +97,7 @@ Each run:
 
 - sends pending photos from up to five `accepted` orders, oldest first, within the existing print batch/time limits;
 - checks the status of Epson jobs already `printing`, marking photos and orders complete or failed;
-- uses a MySQL lock so two cron runs cannot send the same order at once;
+- claims each photo with a MySQL named lock and re-checks its status after claiming, so two cron runs or a cron run and **Send now** cannot send the same photo at once;
 - leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
 
 The worker is CLI-only and inside the protected `cron/` folder, so it cannot be triggered from the browser. The log file records each batch and any failure. If an order fails, fix the printer problem and press **Retry & queue** on the order to return its failed photos to the queue.

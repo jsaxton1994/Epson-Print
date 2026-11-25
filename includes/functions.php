@@ -339,31 +339,86 @@ function order_photo_count(int $orderId): int
 /**
  * Send one photo to Epson and record the job against that photo.
  *
- * Shared by the admin order page and the automatic print-queue cron so both
- * paths use the same failure handling.
+ * Shared by the admin order page and the automatic print-queue cron. A MySQL
+ * named lock claims the individual photo before the status check, so two
+ * workers cannot send the same photo even if they start at the same moment.
+ * The status is re-read after the claim because the caller's photo row may be
+ * stale by then.
  *
- * @return array{ok:bool,error:string}
+ * @param list<string> $allowedStatuses Photo statuses this caller may claim.
+ * @return array{ok:bool,skipped:bool,error:string}
  */
-function send_photo_to_printer(EpsonClient $epson, array $order, array $photo): array
-{
+function send_photo_to_printer(
+    EpsonClient $epson,
+    array $order,
+    array $photo,
+    array $allowedStatuses = ['pending']
+): array {
+    $photoId = (int) ($photo['id'] ?? 0);
+    $allowed = array_values(array_unique(array_filter(
+        $allowedStatuses,
+        static fn (mixed $status): bool => is_string($status) && $status !== ''
+    )));
+
+    if ($photoId <= 0 || $allowed === []) {
+        return ['ok' => false, 'skipped' => true, 'error' => 'This photo is not available to send.'];
+    }
+
+    $lockName = 'printfree_photo_' . $photoId;
+    $locked   = db_val('SELECT GET_LOCK(?, 0)', [$lockName]);
+
+    if ((int) $locked !== 1) {
+        return [
+            'ok'      => false,
+            'skipped' => true,
+            'error'   => $photo['file_name'] . ': another print process is already sending this photo.',
+        ];
+    }
+
     try {
-        $job = $epson->printPhoto($order, $photo);
+        $placeholders = implode(', ', array_fill(0, count($allowed), '?'));
+        $current = db_one(
+            'SELECT status FROM order_photos WHERE id = ? AND status IN (' . $placeholders . ')',
+            array_merge([$photoId], $allowed)
+        );
 
-        db_update('order_photos', [
-            'status'        => 'printing',
-            'epson_job_id'  => (string) $job['jobId'],
-            'error_message' => null,
-            'printed_at'    => null,
-        ], 'id = ?', [$photo['id']]);
+        if ($current === null) {
+            return [
+                'ok'      => false,
+                'skipped' => true,
+                'error'   => $photo['file_name'] . ': this photo has already been handled.',
+            ];
+        }
 
-        return ['ok' => true, 'error' => ''];
-    } catch (EpsonException $e) {
-        db_update('order_photos', [
-            'status'        => 'failed',
-            'error_message' => $e->getMessage(),
-        ], 'id = ?', [$photo['id']]);
+        try {
+            $job = $epson->printPhoto($order, $photo);
 
-        return ['ok' => false, 'error' => $photo['file_name'] . ': ' . $e->getMessage()];
+            db_update('order_photos', [
+                'status'        => 'printing',
+                'epson_job_id'  => (string) $job['jobId'],
+                'error_message' => null,
+                'printed_at'    => null,
+            ], 'id = ?', [$photoId]);
+
+            return ['ok' => true, 'skipped' => false, 'error' => ''];
+        } catch (EpsonException $e) {
+            db_update('order_photos', [
+                'status'        => 'failed',
+                'error_message' => $e->getMessage(),
+            ], 'id = ?', [$photoId]);
+
+            return [
+                'ok'      => false,
+                'skipped' => false,
+                'error'   => $photo['file_name'] . ': ' . $e->getMessage(),
+            ];
+        }
+    } finally {
+        try {
+            db_val('SELECT RELEASE_LOCK(?)', [$lockName]);
+        } catch (Throwable) {
+            // The connection closing also releases the lock.
+        }
     }
 }
 
