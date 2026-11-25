@@ -17,13 +17,15 @@ if (is_post()) {
     $action = input('action');
 
     if ($action === 'service') {
-        $siteName = mb_substr(input('site_name'), 0, 60);
-        $email    = input('support_email');
-        $paper    = input('default_paper_size');
-        $quality  = input('default_print_quality');
+        $siteName   = mb_substr(input('site_name'), 0, 60);
+        $email      = input('support_email');
+        $alertEmail = input('queue_alert_email');
+        $paper      = input('default_paper_size');
+        $quality    = input('default_print_quality');
 
         set_setting('site_name', $siteName !== '' ? $siteName : APP_NAME);
         set_setting('support_email', filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : (string) setting('support_email', ''));
+        set_setting('queue_alert_email', filter_var($alertEmail, FILTER_VALIDATE_EMAIL) ? $alertEmail : '');
         set_setting('accepting_orders', isset($_POST['accepting_orders']) ? '1' : '0');
         set_setting('default_paper_size', array_key_exists($paper, paper_size_options()) ? $paper : 'A4');
         set_setting('default_print_quality', array_key_exists($quality, quality_options()) ? $quality : 'normal');
@@ -163,6 +165,14 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                             <label for="support_email">Support email</label>
                             <input class="input" type="email" id="support_email" name="support_email" value="<?= e(setting('support_email', '')) ?>" maxlength="190" required>
                         </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="queue_alert_email">Queue alert email</label>
+                        <input class="input" type="email" id="queue_alert_email" name="queue_alert_email"
+                               value="<?= e(setting('queue_alert_email', '')) ?>" maxlength="190"
+                               placeholder="<?= e(setting('support_email', '')) ?>">
+                        <p class="help">Where stalled-worker and stuck-order alerts go. Leave blank to use the support email, then an admin account.</p>
                     </div>
 
                     <div class="field-row">

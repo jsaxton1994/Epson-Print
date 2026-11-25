@@ -166,6 +166,125 @@ function site_name(): string
 }
 
 /* -------------------------------------------------------------------------
+ |  Print-queue monitoring
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Where queue alerts go. The explicit alert address wins, then the support
+ * address, then the first active admin account.
+ */
+function queue_alert_recipient(): string
+{
+    foreach ([setting('queue_alert_email', ''), setting('support_email', '')] as $candidate) {
+        $candidate = trim((string) $candidate);
+        if (filter_var($candidate, FILTER_VALIDATE_EMAIL) && !str_ends_with($candidate, '@printfree.test')) {
+            return $candidate;
+        }
+    }
+
+    $adminEmail = db_val("SELECT email FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id ASC LIMIT 1");
+
+    return is_string($adminEmail) && filter_var($adminEmail, FILTER_VALIDATE_EMAIL) ? $adminEmail : '';
+}
+
+/**
+ * Send a plain-text operational alert through the host's mail transport.
+ * The watchdog prints the same information, so a cPanel cron email can act as
+ * a fallback if mail() is unavailable.
+ */
+function send_queue_alert(string $subject, string $body): bool
+{
+    $to = queue_alert_recipient();
+    if ($to === '') {
+        error_log('[PrintFree] Queue alert recipient is not configured.');
+        return false;
+    }
+
+    $support = trim((string) setting('support_email', ''));
+    if (!filter_var($support, FILTER_VALIDATE_EMAIL) || str_ends_with($support, '@printfree.test')) {
+        $support = $to;
+    }
+    $domain = str_contains($support, '@') ? substr(strrchr($support, '@'), 1) : 'localhost';
+    $from   = 'no-reply@' . ($domain !== '' ? $domain : 'localhost');
+
+    $siteName = str_replace(["\r", "\n"], ' ', site_name());
+    $headers  = implode("\r\n", [
+        'From: ' . $siteName . ' <' . $from . '>',
+        'Reply-To: ' . $to,
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'X-Mailer: PHP/' . phpversion(),
+    ]);
+
+    $sent = @mail($to, '[' . $siteName . '] ' . $subject, $body, $headers);
+
+    if (!$sent) {
+        error_log('[PrintFree] Could not send queue alert to ' . $to . '.');
+    }
+
+    return $sent;
+}
+
+/**
+ * Current worker/queue health, shared by the dashboard and the watchdog.
+ *
+ * @return array<string, mixed>
+ */
+function queue_health(): array
+{
+    $now       = time();
+    $lastRun   = setting('print_queue_last_run');
+    $lastRunTs = $lastRun !== null && $lastRun !== '' ? strtotime($lastRun) : false;
+    $lastRunAge = $lastRunTs === false ? null : max(0, $now - $lastRunTs);
+
+    $watchdogRun   = setting('print_queue_watchdog_last_run');
+    $watchdogTs    = $watchdogRun !== null && $watchdogRun !== '' ? strtotime($watchdogRun) : false;
+    $watchdogAge   = $watchdogTs === false ? null : max(0, $now - $watchdogTs);
+
+    $queued = (int) db_val(
+        "SELECT COUNT(*) FROM orders o
+         WHERE o.status = 'accepted'
+           AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')"
+    );
+
+    $oldest = db_one(
+        "SELECT o.reference, o.updated_at
+         FROM orders o
+         WHERE o.status = 'accepted'
+           AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')
+         ORDER BY o.updated_at ASC, o.id ASC
+         LIMIT 1"
+    );
+
+    $oldestTs  = $oldest !== null && !empty($oldest['updated_at']) ? strtotime((string) $oldest['updated_at']) : false;
+    $oldestAge = $oldestTs === false ? null : max(0, $now - $oldestTs);
+    $staleAfter = PRINT_QUEUE_STALE_MINUTES * 60;
+
+    return [
+        'last_run'          => $lastRun,
+        'last_run_age'      => $lastRunAge,
+        'last_success'      => setting('print_queue_last_success'),
+        'last_finished'     => setting('print_queue_last_finished'),
+        'last_status'       => setting('print_queue_last_status', 'unknown') ?? 'unknown',
+        'last_error'        => (string) setting('print_queue_last_error', ''),
+        'worker_never_run'  => $lastRunTs === false,
+        'worker_stale'      => $lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter,
+        'queued'            => $queued,
+        'oldest_reference'  => $oldest['reference'] ?? null,
+        'oldest_age'        => $oldestAge,
+        'queue_stalled'     => $queued > 0 && $oldestAge !== null
+            && $oldestAge > (PRINT_QUEUE_ORDER_STALL_MINUTES * 60),
+        'watchdog_last_run' => $watchdogRun,
+        'watchdog_age'      => $watchdogAge,
+        'watchdog_stale'    => $watchdogTs !== false && $watchdogAge !== null
+            && $watchdogAge > (PRINT_QUEUE_WATCHDOG_STALE_MINUTES * 60),
+        'watchdog_status'   => setting('print_queue_watchdog_last_status', 'unknown') ?? 'unknown',
+        'watchdog_error'    => (string) setting('print_queue_watchdog_last_error', ''),
+        'alert_email'       => queue_alert_recipient(),
+    ];
+}
+
+/* -------------------------------------------------------------------------
  |  Dates & formatting
  * ---------------------------------------------------------------------- */
 
@@ -399,6 +518,12 @@ function send_photo_to_printer(
                 'error_message' => null,
                 'printed_at'    => null,
             ], 'id = ?', [$photoId]);
+
+            // Treat a successful send as queue progress so the watchdog does
+            // not flag a large accepted order that is still moving.
+            if (!empty($order['id'])) {
+                db_update('orders', ['updated_at' => now()], 'id = ?', [(int) $order['id']]);
+            }
 
             return ['ok' => true, 'skipped' => false, 'error' => ''];
         } catch (EpsonException $e) {

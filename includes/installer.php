@@ -122,6 +122,7 @@ function seed_demo_data(PDO $pdo): void
     $defaults = [
         'site_name'             => APP_NAME,
         'support_email'         => 'hello@printfree.test',
+        'queue_alert_email'     => '',
         'accepting_orders'      => '1',
         'default_paper_size'    => '4x6',
         'default_print_quality' => 'high',

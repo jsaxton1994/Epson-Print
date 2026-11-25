@@ -47,7 +47,7 @@ public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
-cron/                CLI-only automatic print queue worker
+cron/                CLI-only print queue worker and watchdog
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -101,6 +101,26 @@ Each run:
 - leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
 
 The worker is CLI-only and inside the protected `cron/` folder, so it cannot be triggered from the browser. The log file records each batch and any failure. If an order fails, fix the printer problem and press **Retry & queue** on the order to return its failed photos to the queue.
+
+### Heartbeat and stalled-queue alerts
+
+The worker writes its heartbeat and last result to the database on every run. A separate watchdog checks them, so it can still alert when the worker itself has stopped. Add a second cPanel cron job running **every five minutes**:
+
+```bash
+/usr/local/bin/php /home/snapprin/public_html/cron/watchdog.php \
+  >> /home/snapprin/queue-watchdog.log 2>&1
+```
+
+The watchdog emails when:
+
+- the worker has not run for 10 minutes, or has never run while accepted orders are waiting;
+- the last worker run ended with an error;
+- an accepted order has been waiting for more than 20 minutes without progress;
+- accepted orders are waiting while the printer is not linked.
+
+Alerts go to **Admin → Settings → Queue alert email**, falling back to the support email and then the first admin account. It sends one alert per incident, repeats at most hourly while the problem continues, and sends a recovery email when the queue is healthy again.
+
+The dashboard also shows the worker state, last run, watchdog state and oldest accepted order. If both cron jobs are managed by the same cPanel account, a full cron-service outage can stop both; use an external uptime monitor for that case.
 
 Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the printer advertises it, otherwise `ps_kg` (102 × 153 mm) and finally `ps_l`. 5 × 7 uses `ps_2l`/`ps_5x8` and A4 uses `ps_a4`, always checked against the printer's advertised capabilities and falling back to a supported borderless or quality mode.
 

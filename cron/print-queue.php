@@ -29,6 +29,10 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/epson.php';
 
+// Record liveness before any work, so the watchdog can distinguish a stopped
+// worker from a worker that is running but not making progress.
+set_setting('print_queue_last_run', now());
+
 @set_time_limit(PRINT_BATCH_SECONDS + STATUS_BATCH_SECONDS + (2 * EPSON_TIMEOUT) + 10);
 
 $lock = db_val("SELECT GET_LOCK('printfree_print_queue', 0)");
@@ -240,6 +244,14 @@ foreach (array_slice(array_values(array_unique($errors)), 0, 5) as $error) {
 
 if ($errors !== []) {
     $exitCode = 1;
+}
+
+set_setting('print_queue_last_finished', now());
+set_setting('print_queue_last_status', $exitCode === 0 ? 'ok' : 'error');
+set_setting('print_queue_last_error', mb_substr(implode(' ', array_unique($errors)), 0, 1000));
+
+if ($exitCode === 0) {
+    set_setting('print_queue_last_success', now());
 }
 
 exit($exitCode);

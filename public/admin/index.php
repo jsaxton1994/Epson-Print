@@ -19,6 +19,14 @@ $counts = db_one(
      FROM orders"
 ) ?? ['pending' => 0, 'accepted' => 0, 'printing' => 0, 'failed' => 0, 'total' => 0];
 
+$queueHealth = queue_health();
+$queueWorkerState = $queueHealth['worker_never_run']
+    ? 'Never run'
+    : ($queueHealth['worker_stale'] ? 'Stopped' : ($queueHealth['last_status'] === 'error' ? 'Failing' : 'Healthy'));
+$queueWatchdogState = $queueHealth['watchdog_last_run'] === null
+    ? 'Never run'
+    : ($queueHealth['watchdog_stale'] ? 'Stale' : ($queueHealth['watchdog_status'] === 'error' ? 'Failing' : 'Healthy'));
+
 $printedToday = (int) db_val(
     "SELECT COUNT(*) FROM orders WHERE status = 'completed' AND printed_at >= ?",
     [date('Y-m-d') . ' 00:00:00']
@@ -73,6 +81,64 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <div class="banner-actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('wifi') ?> Connect the printer</a>
             </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($queueHealth['worker_never_run'] && $queueHealth['queued'] > 0): ?>
+    <div class="banner banner-warn">
+        <?= icon('alert') ?>
+        <div>
+            <strong>The print-queue worker has never run</strong>
+            <p><?= (int) $queueHealth['queued'] ?> accepted order<?= $queueHealth['queued'] === 1 ? ' is' : 's are' ?> waiting. Check the cron job and the print-queue log.</p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['worker_stale']): ?>
+    <div class="banner banner-warn">
+        <?= icon('alert') ?>
+        <div>
+            <strong>The print-queue worker has stopped</strong>
+            <p>Last run <?= e(time_ago((string) $queueHealth['last_run'])) ?>. Check the cron job and the print-queue log.</p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['last_status'] === 'error'): ?>
+    <div class="banner banner-warn">
+        <?= icon('alert') ?>
+        <div>
+            <strong>The last print-queue run failed</strong>
+            <p><?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'Check the print-queue log for details.') ?></p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['queued'] > 0 && !$epson->isConnected()): ?>
+    <div class="banner banner-warn">
+        <?= icon('alert') ?>
+        <div>
+            <strong>Accepted orders are waiting for a printer</strong>
+            <p><?= (int) $queueHealth['queued'] ?> order<?= $queueHealth['queued'] === 1 ? '' : 's' ?> cannot print until <?= e(EPSON_PRINTER_MODEL) ?> is linked. <a href="<?= e(url('admin/settings.php')) ?>">Connect the printer</a>.</p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['queue_stalled']): ?>
+    <div class="banner banner-warn">
+        <?= icon('alert') ?>
+        <div>
+            <strong>The print queue is stalled</strong>
+            <p><?= e((string) $queueHealth['oldest_reference']) ?> has been waiting <?= (int) floor(((int) $queueHealth['oldest_age']) / 60) ?> minutes. Check the worker status below.</p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['watchdog_last_run'] === null): ?>
+    <div class="banner banner-info">
+        <?= icon('mail') ?>
+        <div>
+            <strong>Queue alert watchdog has not run yet</strong>
+            <p>Add the watchdog cron job so a stopped worker or stuck accepted order sends an alert.</p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['watchdog_stale']): ?>
+    <div class="banner banner-warn">
+        <?= icon('mail') ?>
+        <div>
+            <strong>The queue alert watchdog has stopped</strong>
+            <p>Last check <?= e(time_ago((string) $queueHealth['watchdog_last_run'])) ?>. Queue problems may not be emailed until it runs again.</p>
         </div>
     </div>
 <?php endif; ?>
@@ -217,6 +283,11 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <div class="panel-body">
                 <div class="summary-list">
                     <div class="summary-row"><span>Queue status</span><strong><?= setting('accepting_orders', '1') === '1' ? 'Accepting orders' : 'Paused' ?></strong></div>
+                    <div class="summary-row"><span>Queue worker</span><strong><?= e($queueWorkerState) ?></strong></div>
+                    <div class="summary-row"><span>Worker last run</span><strong><?= $queueHealth['last_run'] !== null ? e(time_ago((string) $queueHealth['last_run'])) : 'Never' ?></strong></div>
+                    <div class="summary-row"><span>Watchdog</span><strong><?= e($queueWatchdogState) ?></strong></div>
+                    <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
+                    <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
                     <div class="summary-row"><span>Failed jobs</span><strong><?= (int) $counts['failed'] ?></strong></div>
                     <div class="summary-row"><span>All-time orders</span><strong><?= (int) $counts['total'] ?></strong></div>
                     <div class="summary-row"><span>Photos per order</span><strong>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>

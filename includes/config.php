@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.2.2';
+const APP_VERSION = '1.3.0';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -83,6 +83,13 @@ const PRINT_BATCH_MAX = 10;
 const PRINT_BATCH_SECONDS = 20;
 const STATUS_BATCH_MAX = 25;
 const STATUS_BATCH_SECONDS = 20;
+
+// Queue monitoring. The watchdog runs separately from the print worker so it
+// can still alert when the worker itself has stopped.
+const PRINT_QUEUE_STALE_MINUTES = 10;
+const PRINT_QUEUE_ORDER_STALL_MINUTES = 20;
+const PRINT_QUEUE_WATCHDOG_STALE_MINUTES = 15;
+const PRINT_QUEUE_ALERT_COOLDOWN_MINUTES = 60;
 
 
 /* -------------------------------------------------------------------------
