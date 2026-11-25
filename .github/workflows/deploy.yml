@@ -96,7 +96,15 @@ jobs:
           done
 
           print_cpanel_failure() {
-            echo "::error::$1"
+            local detail=""
+            if jq -e . >/dev/null 2>&1 <<<"$response"; then
+              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[]] | map(select(. != null and . != "")) | join(" | ")' <<<"$response")
+            fi
+            if [ -n "$detail" ]; then
+              echo "::error title=cPanel deployment failed::${1} ${detail}"
+            else
+              echo "::error::$1"
+            fi
             echo "--- cPanel response body ---"
             printf '%s\n' "$response"
             echo "--- cPanel error message ---"
