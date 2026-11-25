@@ -9,10 +9,12 @@ DirectoryIndex public/index.php
     php_value post_max_size 128M
 </IfModule>
 
-# Application-only folder: block every direct request to it.
+# Application-only folders: block every direct request to them. The cron
+# worker is CLI-only and also refuses to run over HTTP.
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^includes(?:/|$) - [F,L,NC]
+    RewriteRule ^cron(?:/|$) - [F,L,NC]
 </IfModule>
 
 <IfModule mod_headers.c>

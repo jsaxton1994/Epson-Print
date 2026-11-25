@@ -47,6 +47,7 @@ public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
+cron/                CLI-only automatic print queue worker
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -68,6 +69,7 @@ The order status is derived from its photos:
 
 - every photo `completed` → order `completed`
 - any photo `failed` → order `failed`
+- accepted with photos still waiting → order `accepted`
 - any photo sent or printed → order `printing`
 - otherwise → order `pending`
 
@@ -76,10 +78,29 @@ The order status is derived from its photos:
 1. A customer selects up to 100 photos. The browser accepts any common image type and converts HEIC/TIFF with the bundled decoders, validates size, then uploads the selection in chunks of at most 10 (smaller when the host's `post_max_size` requires it). Each photo is decoded again on the server, up to 10 MB.
 2. The first chunk creates the order with the chosen print settings; the remaining chunks are sent to `customer/add-photos.php` under the same order. A progress line shows how many photos have been uploaded, and a failed chunk can be retried from where it stopped.
 3. Each photo is normalised before storage: JPEG and PNG keep their bytes, while WebP, GIF, BMP, AVIF and TGA are converted to JPEG with GD. HEIC and TIFF are converted in the browser by the bundled decoders; direct uploads of those formats also use Imagick when the server has it. Transparency is flattened onto white. Stored BLOBs in `order_photos.image_data` are therefore always printable, and nothing is written to disk — one file at a time, so a request never holds more than a single photo in memory. A small JPEG preview is generated with GD and stored in `thumb_data`; list pages and galleries load that instead of the full-size photo.
-4. An administrator opens the order and presses **Print**. The site creates **one Epson job per photo**, uploading up to `PRINT_BATCH_MAX` photos per click with a `PRINT_BATCH_SECONDS` wall-clock budget, then asks the admin to continue. A 100-photo order is therefore finished over several clicks instead of one long request.
-5. Epson job status is refreshed in batches too (`STATUS_BATCH_MAX` / `STATUS_BATCH_SECONDS`), and the customer sees the timeline and per-photo status update.
+4. An administrator opens the order and presses **Accept & queue**. The order becomes `accepted`; the automatic queue worker sends its photos in batches. The **Send next … now** button remains available as a manual fallback.
+5. The queue worker creates **one Epson job per photo**, sending up to `PRINT_BATCH_MAX` photos per order with a `PRINT_BATCH_SECONDS` wall-clock budget. A 100-photo order is therefore spread across several cron runs instead of one long request.
+6. Epson job status is refreshed in batches too (`STATUS_BATCH_MAX` / `STATUS_BATCH_SECONDS`), and the customer sees the timeline and per-photo status update.
 
 Epson's upload endpoint accepts a single file per job (`File=1.jpg`), so a multi-photo order is sent as several jobs, one after another. Because each photo is its own job, Epson's printable-file limit no longer caps the order size.
+
+## Automatic print queue (cron)
+
+Accepted orders are printed without another click. Add this command to a cPanel cron job running **every minute**:
+
+```bash
+/usr/local/bin/php /home/snapprin/public_html/cron/print-queue.php \
+  >> /home/snapprin/print-queue.log 2>&1
+```
+
+Each run:
+
+- sends pending photos from up to five `accepted` orders, oldest first, within the existing print batch/time limits;
+- checks the status of Epson jobs already `printing`, marking photos and orders complete or failed;
+- uses a MySQL lock so two cron runs cannot send the same order at once;
+- leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
+
+The worker is CLI-only and inside the protected `cron/` folder, so it cannot be triggered from the browser. The log file records each batch and any failure. If an order fails, fix the printer problem and press **Retry & queue** on the order to return its failed photos to the queue.
 
 Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the printer advertises it, otherwise `ps_kg` (102 × 153 mm) and finally `ps_l`. 5 × 7 uses `ps_2l`/`ps_5x8` and A4 uses `ps_a4`, always checked against the printer's advertised capabilities and falling back to a supported borderless or quality mode.
 
@@ -100,15 +121,15 @@ Printing runs through the Epson Connect API v2 (device authorisation, OAuth2).
 3. Add your Redirect URI to that app — the site shows the exact address on the settings page, typically `https://your-site.example/admin/epson-callback.php`.
 4. In **Admin → Settings → Epson Connect API v2**, paste the credentials and save.
 5. Press **Connect Epson ET-2926**, sign in with your Epson account and pick the printer.
-6. Open any photo order and press **Print**. Each photo is uploaded and started as its own job, then the page shows the job status.
+6. Open any photo order and press **Accept & queue**; the cron worker uploads each photo as its own job. The page shows the job status and the manual **Send now** fallback.
 
-Until the printer is linked, orders can still be managed and marked printed by hand.
+Until the printer is linked, orders can still be accepted, managed and marked printed by hand; accepted orders wait for the printer.
 
 ## Security notes
 
 - Passwords use `password_hash()`, sessions use `HttpOnly` + `SameSite` cookies, all forms are CSRF protected.
 - Every query uses prepared statements; output is escaped with `e()`.
-- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` is blocked with `.htaccess`.
+- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `cron/` are blocked with `.htaccess`, and the cron worker refuses HTTP requests itself.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
 - Admin: deleting a customer or an order also deletes all of its stored photos.
 

@@ -379,6 +379,7 @@ hr {
 .badge-icon { width: 13px; height: 13px; stroke-width: 2.1; }
 
 .badge-pending { background: var(--amber-soft); color: #9a6400; border-color: #ffe2ad; }
+.badge-accepted { background: var(--brand-soft); color: var(--brand-dark); border-color: #d9e2ff; }
 .badge-printing { background: var(--brand-soft); color: var(--brand-dark); border-color: #d9e2ff; }
 .badge-completed { background: var(--accent-soft); color: #06776b; border-color: #bdefe8; }
 .badge-cancelled { background: #f2f4f9; color: #5d6a82; border-color: #e3e8f2; }

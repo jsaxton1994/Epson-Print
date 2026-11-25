@@ -14,7 +14,7 @@ if ($user['role'] === 'admin') {
 
 $stats = db_one(
     "SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN status IN ('pending', 'accepted') THEN 1 ELSE 0 END), 0) AS pending,
             COALESCE(SUM(CASE WHEN status = 'printing' THEN 1 ELSE 0 END), 0) AS printing,
             COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed
      FROM orders WHERE user_id = ?",

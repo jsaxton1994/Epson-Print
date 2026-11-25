@@ -11,7 +11,7 @@ $admin = require_admin();
 $epson = EpsonClient::fromSettings();
 
 $status  = input('status', 'all');
-$allowed = ['all', 'pending', 'printing', 'completed', 'cancelled', 'failed'];
+$allowed = ['all', 'pending', 'accepted', 'printing', 'completed', 'cancelled', 'failed'];
 $status  = in_array($status, $allowed, true) ? $status : 'all';
 $search  = mb_substr(input('q'), 0, 80);
 
@@ -50,7 +50,8 @@ $orders = db_all(
 
 $tabs = [
     'all'       => 'All',
-    'pending'   => 'Queue',
+    'pending'   => 'New',
+    'accepted'  => 'Auto queue',
     'printing'  => 'Printing',
     'completed' => 'Printed',
     'failed'    => 'Failed',
@@ -126,12 +127,19 @@ app_start('admin', 'orders', 'Orders', 'Every photo job, with the controls to mo
                         <td class="nowrap muted"><?= e(time_ago($order['created_at'])) ?></td>
                         <td class="cell-actions">
                             <div class="table-actions">
-                                <?php if (in_array($order['status'], ['pending', 'failed'], true) && $epson->isConnected()): ?>
-                                    <form method="post" action="<?= e(url('admin/order.php')) ?>" data-confirm="Send <?= $count ?> photo<?= $count === 1 ? '' : 's' ?> to the printer now?">
+                                <?php if (in_array($order['status'], ['pending', 'failed'], true)): ?>
+                                    <form method="post" action="<?= e(url('admin/order.php')) ?>" data-confirm="Accept this order and put it in the automatic print queue?">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="id" value="<?= (int) $order['id'] ?>">
+                                        <input type="hidden" name="action" value="accept">
+                                        <button class="btn btn-soft btn-sm" type="submit"><?= icon('check') ?> <?= $order['status'] === 'failed' ? 'Retry' : 'Accept' ?></button>
+                                    </form>
+                                <?php elseif ($order['status'] === 'accepted' && $epson->isConnected()): ?>
+                                    <form method="post" action="<?= e(url('admin/order.php')) ?>" data-confirm="Send the next batch to the printer now? The cron queue does this automatically.">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="id" value="<?= (int) $order['id'] ?>">
                                         <input type="hidden" name="action" value="print">
-                                        <button class="btn btn-soft btn-sm" type="submit"><?= icon('printer') ?> Print</button>
+                                        <button class="btn btn-soft btn-sm" type="submit"><?= icon('printer') ?> Send now</button>
                                     </form>
                                 <?php endif; ?>
                                 <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/order.php?id=' . (int) $order['id'])) ?>">Open</a>

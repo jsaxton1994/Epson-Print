@@ -12,11 +12,12 @@ $epson = EpsonClient::fromSettings();
 
 $counts = db_one(
     "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
             COALESCE(SUM(CASE WHEN status = 'printing' THEN 1 ELSE 0 END), 0) AS printing,
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
             COUNT(*) AS total
      FROM orders"
-) ?? ['pending' => 0, 'printing' => 0, 'failed' => 0, 'total' => 0];
+) ?? ['pending' => 0, 'accepted' => 0, 'printing' => 0, 'failed' => 0, 'total' => 0];
 
 $printedToday = (int) db_val(
     "SELECT COUNT(*) FROM orders WHERE status = 'completed' AND printed_at >= ?",
@@ -37,8 +38,8 @@ $photoSelect = "
 $queue = db_all(
     "SELECT o.*, u.name AS customer, {$photoSelect}
      FROM orders o JOIN users u ON u.id = o.user_id
-     WHERE o.status IN ('pending', 'printing', 'failed')
-     ORDER BY o.status = 'printing' DESC, o.id ASC
+     WHERE o.status IN ('pending', 'accepted', 'printing', 'failed')
+     ORDER BY o.status = 'printing' DESC, o.status = 'accepted' DESC, o.id ASC
      LIMIT 6"
 );
 
@@ -78,7 +79,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
 
 <div class="stats-grid">
     <?php
-    stat_card('Waiting in queue', (string) $counts['pending'], 'clock', 'amber', $counts['pending'] > 0 ? 'Needs printing' : 'All clear');
+    stat_card('Waiting in queue', (string) $counts['accepted'], 'clock', 'amber', $counts['pending'] > 0 ? $counts['pending'] . ' awaiting acceptance' : 'No new orders');
     stat_card('Printing now', (string) $counts['printing'], 'printer', 'violet');
     stat_card('Photos printed today', (string) $photosToday, 'check', 'accent', $printedToday . ' ' . ($printedToday === 1 ? 'order' : 'orders'));
     stat_card('Customers', (string) $customerCount, 'users', 'brand');
@@ -229,7 +230,8 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <div class="panel-head"><h3>Quick links</h3></div>
             <div class="panel-body pad-sm">
                 <ul class="check-list" style="gap:12px">
-                    <li><?= icon('layers') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">Orders waiting to print</a></span></li>
+                    <li><?= icon('layers') ?><span><a href="<?= e(url('admin/orders.php?status=accepted')) ?>">Automatic print queue</a></span></li>
+                    <li><?= icon('clock') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">New orders awaiting acceptance</a></span></li>
                     <li><?= icon('users') ?><span><a href="<?= e(url('admin/customers.php')) ?>">Customer directory</a></span></li>
                     <li><?= icon('gear') ?><span><a href="<?= e(url('admin/settings.php')) ?>">Service &amp; printer settings</a></span></li>
                 </ul>

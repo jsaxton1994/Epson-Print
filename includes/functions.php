@@ -293,7 +293,8 @@ function color_options(): array
 function status_meta(string $status): array
 {
     return match ($status) {
-        'pending'   => ['In queue', 'badge-pending', 'clock'],
+        'pending'   => ['Submitted', 'badge-pending', 'clock'],
+        'accepted'  => ['In queue', 'badge-accepted', 'clock'],
         'printing'  => ['Printing', 'badge-printing', 'printer'],
         'completed' => ['Printed', 'badge-completed', 'check'],
         'cancelled' => ['Cancelled', 'badge-cancelled', 'close'],
@@ -333,6 +334,58 @@ function order_photos(int $orderId): array
 function order_photo_count(int $orderId): int
 {
     return (int) db_val('SELECT COUNT(*) FROM order_photos WHERE order_id = ?', [$orderId]);
+}
+
+/**
+ * Send one photo to Epson and record the job against that photo.
+ *
+ * Shared by the admin order page and the automatic print-queue cron so both
+ * paths use the same failure handling.
+ *
+ * @return array{ok:bool,error:string}
+ */
+function send_photo_to_printer(EpsonClient $epson, array $order, array $photo): array
+{
+    try {
+        $job = $epson->printPhoto($order, $photo);
+
+        db_update('order_photos', [
+            'status'        => 'printing',
+            'epson_job_id'  => (string) $job['jobId'],
+            'error_message' => null,
+            'printed_at'    => null,
+        ], 'id = ?', [$photo['id']]);
+
+        return ['ok' => true, 'error' => ''];
+    } catch (EpsonException $e) {
+        db_update('order_photos', [
+            'status'        => 'failed',
+            'error_message' => $e->getMessage(),
+        ], 'id = ?', [$photo['id']]);
+
+        return ['ok' => false, 'error' => $photo['file_name'] . ': ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Accept an order for automatic printing. Failed or cancelled photos are
+ * returned to the queue so a retry starts cleanly.
+ */
+function accept_order_for_printing(int $orderId, string $actor): void
+{
+    db_query(
+        "UPDATE order_photos
+         SET status = 'pending', epson_job_id = NULL, printed_at = NULL, error_message = NULL
+         WHERE order_id = ? AND status IN ('failed', 'cancelled')",
+        [$orderId]
+    );
+
+    update_order_status(
+        $orderId,
+        'accepted',
+        'Accepted by ' . $actor . '; queued for automatic printing.',
+        $actor
+    );
 }
 
 /**
@@ -980,6 +1033,7 @@ function insert_order_photo(int $orderId, array $photo): void
  *
  * all photos completed  -> completed
  * any photo failed      -> failed
+ * accepted, still waiting -> accepted
  * any sent/printed      -> printing
  * otherwise             -> pending
  */
@@ -1000,6 +1054,7 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     $counts    = array_count_values(array_map(static fn (array $p): string => (string) $p['status'], $photos));
     $completed = (int) ($counts['completed'] ?? 0);
     $failed    = (int) ($counts['failed'] ?? 0);
+    $pending   = (int) ($counts['pending'] ?? 0);
     $sent      = $completed + (int) ($counts['printing'] ?? 0);
 
     if ($completed === $total) {
@@ -1008,6 +1063,9 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     } elseif ($failed > 0) {
         $status  = 'failed';
         $message = $failed . ' of ' . $total . ' photos could not be printed.';
+    } elseif ($order['status'] === 'accepted' && $pending > 0) {
+        $status  = 'accepted';
+        $message = 'Waiting to print: ' . $pending . ' of ' . $total . ' photos still in the automatic queue.';
     } elseif ($sent > 0) {
         $status  = 'printing';
         $message = $sent . ' of ' . $total . ' photos sent to the printer.';
@@ -1094,7 +1152,7 @@ function update_order_status(int $orderId, string $status, string $message, ?str
     if ($status === 'completed') {
         $data['printed_at'] = now();
     }
-    if ($status === 'pending') {
+    if (in_array($status, ['pending', 'accepted'], true)) {
         $data['error_message'] = null;
     }
 

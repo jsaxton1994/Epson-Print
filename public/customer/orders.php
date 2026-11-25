@@ -13,7 +13,7 @@ if ($user['role'] === 'admin') {
 }
 
 $status  = input('status', 'all');
-$allowed = ['all', 'pending', 'printing', 'completed', 'cancelled', 'failed'];
+$allowed = ['all', 'pending', 'accepted', 'printing', 'completed', 'cancelled', 'failed'];
 $status  = in_array($status, $allowed, true) ? $status : 'all';
 $search  = mb_substr(input('q'), 0, 80);
 
@@ -47,7 +47,8 @@ $orders = db_all(
 
 $tabs = [
     'all'       => 'All',
-    'pending'   => 'In queue',
+    'pending'   => 'Submitted',
+    'accepted'  => 'In queue',
     'printing'  => 'Printing',
     'completed' => 'Printed',
     'cancelled' => 'Cancelled',

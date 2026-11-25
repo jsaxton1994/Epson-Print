@@ -39,7 +39,7 @@ if (is_post()) {
 $stats = db_one(
     "SELECT COUNT(*) AS total,
             COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
-            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending
+            COALESCE(SUM(CASE WHEN status IN ('pending', 'accepted') THEN 1 ELSE 0 END), 0) AS pending
      FROM orders WHERE user_id = ?",
     [$customerId]
 ) ?? ['total' => 0, 'completed' => 0, 'pending' => 0];

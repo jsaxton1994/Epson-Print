@@ -25,36 +25,23 @@ if ($order === null) {
 
 $back = url('admin/order.php?id=' . $orderId);
 
-/**
- * Send one photo to Epson and record the job against that photo.
- *
- * @return array{ok:bool,error:string}
- */
-$sendPhoto = static function (array $photo) use ($epson, $order, $admin): array {
-    try {
-        $job = $epson->printPhoto($order, $photo);
-
-        db_update('order_photos', [
-            'status'        => 'printing',
-            'epson_job_id'  => (string) $job['jobId'],
-            'error_message' => null,
-            'printed_at'    => null,
-        ], 'id = ?', [$photo['id']]);
-
-        return ['ok' => true, 'error' => ''];
-    } catch (EpsonException $e) {
-        db_update('order_photos', [
-            'status'        => 'failed',
-            'error_message' => $e->getMessage(),
-        ], 'id = ?', [$photo['id']]);
-
-        return ['ok' => false, 'error' => $photo['file_name'] . ': ' . $e->getMessage()];
-    }
-};
-
 if (is_post()) {
     verify_csrf();
     $action = input('action');
+
+    if ($action === 'accept') {
+        if (!in_array($order['status'], ['pending', 'failed'], true)) {
+            flash('error', 'Only submitted or failed orders can be accepted for printing.');
+            redirect($back);
+        }
+
+        accept_order_for_printing($orderId, (string) $admin['name']);
+        flash('success', 'Order accepted and queued. The print-queue cron will send it to the printer automatically.');
+        if (!$epson->isConnected()) {
+            flash('info', 'The printer is not linked yet, so the order will wait in the queue until it is.');
+        }
+        redirect($back);
+    }
 
     if (in_array($action, ['print', 'print_photo', 'reprint'], true)) {
         if (!$epson->isConnected()) {
@@ -116,7 +103,7 @@ if (is_post()) {
                 break;
             }
 
-            $result = $sendPhoto($photo);
+            $result = send_photo_to_printer($epson, $order, $photo);
             if ($result['ok']) {
                 $sent++;
             } else {
@@ -232,6 +219,11 @@ $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => 
 $reprint     = $order['status'] === 'completed';
 $printTotal  = $reprint ? $count : count($pendingSend);
 $printNow    = min(PRINT_BATCH_MAX, $printTotal);
+$canAccept   = in_array($order['status'], ['pending', 'failed'], true);
+$canPrint    = $epson->isConnected()
+    && $order['status'] !== 'cancelled'
+    && (($pendingSend !== [] && in_array($order['status'], ['accepted', 'printing'], true))
+        || $order['status'] === 'completed');
 $customer    = db_one(
     'SELECT id, name, email, phone, created_at,
             (SELECT COUNT(*) FROM orders o WHERE o.user_id = users.id) AS order_count
@@ -311,24 +303,39 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                 <?php endif; ?>
 
                 <div class="order-actions">
-                    <?php if ($epson->isConnected() && $order['status'] !== 'cancelled' && ($pendingSend !== [] || $order['status'] === 'completed')): ?>
+                    <?php if ($canAccept): ?>
+                        <form method="post" action="<?= e($back) ?>" data-confirm="Accept this order and put it in the automatic print queue?">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="accept">
+                            <button class="btn btn-primary btn-sm" type="submit">
+                                <?= icon('check') ?> <?= $order['status'] === 'failed' ? 'Retry &amp; queue' : 'Accept &amp; queue' ?>
+                            </button>
+                        </form>
+                        <span class="muted" style="font-size:.78rem;align-self:center">The cron queue starts printing after acceptance.</span>
+                    <?php endif; ?>
+
+                    <?php if ($canPrint): ?>
                         <form method="post" action="<?= e($back) ?>" data-confirm="<?= $reprint
                             ? 'Reprint all ' . $count . ' photos in batches of ' . PRINT_BATCH_MAX . '?'
                             : 'Send up to ' . $printNow . ' photo' . ($printNow === 1 ? '' : 's') . ' to ' . e(EPSON_PRINTER_MODEL) . ' now?' ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="<?= $reprint ? 'reprint' : 'print' ?>">
-                            <button class="btn btn-primary btn-sm" type="submit">
+                            <button class="btn btn-soft btn-sm" type="submit">
                                 <?= icon('printer') ?>
                                 <?php if ($reprint): ?>
                                     Print again (<?= $printNow ?> at a time)
                                 <?php else: ?>
-                                    Print next <?= $printNow ?> of <?= $printTotal ?>
+                                    Send next <?= $printNow ?> of <?= $printTotal ?> now
                                 <?php endif; ?>
                             </button>
                         </form>
                         <?php if ($printTotal > PRINT_BATCH_MAX): ?>
                             <span class="muted" style="font-size:.78rem;align-self:center">Up to <?= (int) PRINT_BATCH_MAX ?> per click so the request cannot time out.</span>
                         <?php endif; ?>
+                    <?php endif; ?>
+
+                    <?php if ($order['status'] === 'accepted'): ?>
+                        <span class="muted" style="font-size:.78rem;align-self:center">Waiting for the automatic print queue.</span>
                     <?php endif; ?>
 
                     <?php if ($order['status'] === 'printing'): ?>
@@ -339,7 +346,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                         </form>
                     <?php endif; ?>
 
-                    <?php if (in_array($order['status'], ['pending', 'printing', 'failed'], true)): ?>
+                    <?php if (in_array($order['status'], ['pending', 'accepted', 'printing', 'failed'], true)): ?>
                         <form method="post" action="<?= e($back) ?>" data-confirm="Mark every photo in this order as printed? Do this only after the prints are out of the printer.">
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="complete">
