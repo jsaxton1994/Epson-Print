@@ -98,7 +98,10 @@ function absolute_url(string $path = ''): string
 
 function asset(string $path): string
 {
-    return url(ltrim($path, '/'));
+    $url = url(ltrim($path, '/'));
+    $version = defined('APP_VERSION') ? APP_VERSION : '1';
+
+    return $url . (str_contains($url, '?') ? '&' : '?') . 'v=' . rawurlencode($version);
 }
 
 function redirect(string $path): never

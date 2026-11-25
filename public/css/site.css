@@ -1175,7 +1175,7 @@
     .footer-brand { grid-column: 1 / -1; }
     .footer-bottom { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 8px; }
     .footer-status { justify-self: center; }
-    .auth-section { padding-top: 30px; }
+    .auth-section { padding: 30px 0 40px; }
     .auth-card { padding: 28px 22px; }
     .auth-side { padding: 28px 22px; }
     .auth-card h1 { font-size: 1.55rem; }
