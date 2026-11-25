@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -30,43 +30,17 @@ const APP_URL = '';
 /* -------------------------------------------------------------------------
  |  Database
  |
- |  Set DB_HOST, DB_NAME, DB_USERNAME, DB_PORT and DB_PASSWORD in the
- |  environment (Railway, Render, Heroku, Docker, etc.) to use MySQL.
- |  When DB_HOST is missing or the server cannot be reached, the site falls
- |  back to SQLite automatically — no credentials, no setup, a single file.
- |  Tables install themselves either way.
+ |  Live MySQL database from cPanel. Edit these values directly.
+ |  If MySQL cannot be reached, db.php falls back to the local SQLite file
+ |  at DB_SQLITE_PATH so the site stays available.
  * ---------------------------------------------------------------------- */
 
-/**
- * Read a database setting from the environment, ignoring blank values.
- */
-function db_env(string $key, string $default = ''): string
-{
-    $value = getenv($key);
-    if ($value === false) {
-        $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
-    }
-
-    if (!is_string($value) || trim($value) === '') {
-        return $default;
-    }
-
-    return trim($value);
-}
-
-$dbHost   = db_env('DB_HOST');
-$dbDriver = strtolower(db_env('DB_DRIVER', $dbHost !== '' ? 'mysql' : 'sqlite'));
-$dbPort   = db_env('DB_PORT', '3306');
-
-// 'mysql' is attempted first when configured; db.php falls back to SQLite if
-// it is unreachable.
-define('DB_DRIVER', $dbDriver === 'mysql' ? 'mysql' : 'sqlite');
-
-define('DB_HOST', $dbHost);
-define('DB_PORT', ctype_digit($dbPort) ? (int) $dbPort : 3306);
-define('DB_NAME', db_env('DB_NAME', 'printfree'));
-define('DB_USER', db_env('DB_USERNAME', db_env('DB_USER', 'root')));
-define('DB_PASS', db_env('DB_PASSWORD', db_env('DB_PASS', '')));
+const DB_DRIVER = 'mysql';
+const DB_HOST   = 'localhost';
+const DB_PORT   = 3306;
+const DB_NAME   = 'snapprin_snapprints';
+const DB_USER   = 'snapprin_snapprints';
+const DB_PASS   = '(O4#K*s?gnK]n6U;';
 
 const DB_SQLITE_PATH = __DIR__ . '/../storage/database.sqlite';
 

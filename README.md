@@ -15,7 +15,7 @@ Demo accounts:
 
 ## Requirements
 
-- PHP 8.1 or newer with `pdo_sqlite` (default) **or** `pdo_mysql`, plus `curl`, `fileinfo`, `mbstring` and `gd`
+- PHP 8.1 or newer with `pdo_mysql` (live database) and/or `pdo_sqlite` (fallback), plus `curl`, `fileinfo`, `mbstring` and `gd`
 - Apache with `mod_rewrite` (not required) or Nginx / PHP's built-in server
 - Write access to `storage/`
 
@@ -29,10 +29,10 @@ Demo accounts:
 
    The web root is `public/`. Point Apache, Nginx or your host (including Wasmer) at that folder. If the project root is the document root instead, the bundled `.htaccess` sends visitors to `public/index.php` and links automatically include the `/public/` prefix.
 
-2. Open the site. The first request creates the database, tables and demo data (sample photos included) automatically.
+2. Open the site. The first request creates the tables, settings and demo accounts automatically if the database is empty.
 3. Sign in with one of the demo accounts above.
 
-The database file is `storage/database.sqlite`. Delete it to start over with fresh demo data.
+The live site uses MySQL; `storage/database.sqlite` is only the automatic fallback if MySQL is unreachable.
 
 ## Folder structure
 
@@ -46,8 +46,7 @@ public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
-database/            SQLite + MySQL schema files and demo photos
-storage/             SQLite database, including the stored photos
+storage/             SQLite fallback database (not used while MySQL is up)
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -86,21 +85,11 @@ Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the pri
 
 ## Database
 
-SQLite needs no setup, which is handy for a free host: the site keeps everything in `storage/database.sqlite`.
+The live site uses the MySQL database created in cPanel. Its connection details are the `DB_*` constants near the top of `includes/config.php`: host (`localhost`), port, database name, user and password. When the `users` table is missing, the installer creates the tables, default settings and the two demo accounts.
 
-For MySQL, set these environment variables (Railway, Render, Heroku, Docker, or your host's control panel):
+**If MySQL cannot be reached, `includes/db.php` falls back to `storage/database.sqlite`** so the site stays available. Admin → Settings shows the driver actually in use and marks a fallback. The SQLite and MySQL schemas are embedded in `includes/installer.php`, so there are no schema files to import or maintain.
 
-| Variable | Example |
-| --- | --- |
-| `DB_HOST` | `db.example.com` |
-| `DB_PORT` | `3306` |
-| `DB_NAME` | `printfree` |
-| `DB_USERNAME` | `printfree` |
-| `DB_PASSWORD` | your database password |
-
-When `DB_HOST` is set the site connects to MySQL and installs its tables and demo data on the first load. **If MySQL cannot be reached, it falls back to SQLite automatically**, so the site still runs locally or on a host without a database. Set `DB_DRIVER=sqlite` to skip MySQL entirely. Admin → Settings → Storage shows the driver actually in use.
-
-Credentials stay in the environment, never in the repository. Both schemas live in `database/` if you prefer to import them by hand.
+The database password is stored in `includes/config.php`; treat that file as a secret before sharing or making the repository public.
 
 ## Connecting the Epson ET-2926
 
@@ -119,7 +108,7 @@ Until the printer is linked, orders can still be managed and marked printed by h
 
 - Passwords use `password_hash()`, sessions use `HttpOnly` + `SameSite` cookies, all forms are CSRF protected.
 - Every query uses prepared statements; output is escaped with `e()`.
-- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/`, `database/` and `storage/` are blocked with `.htaccess`.
+- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `storage/` are blocked with `.htaccess`.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
 - Admin: deleting a customer or an order also deletes all of its stored photos.
 
