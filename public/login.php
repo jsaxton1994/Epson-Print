@@ -77,7 +77,7 @@ site_head('Sign in', ['active' => '']);
             <p class="auth-switch">New here? <a href="<?= e(url('public/register.php')) ?>">Create a free account</a></p>
         </div>
 
-        <aside class="auth-side reveal reveal-delay-1">
+        <aside class="auth-side auth-side--login reveal reveal-delay-1">
             <ul class="auth-points">
                 <li><?= icon('shield') ?><span>No card details, credits or page allowance</span></li>
                 <li><?= icon('image') ?><span>Your photos stay private to you and the admins</span></li>
