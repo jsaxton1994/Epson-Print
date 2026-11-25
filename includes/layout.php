@@ -179,6 +179,7 @@ function site_footer(): void
     </div>
     <div class="container footer-bottom">
         <span>&copy; <?= date('Y') ?> <?= e(site_name()) ?>. Free for everyone, always.</span>
+        <span class="footer-version">v<?= e(APP_VERSION) ?></span>
         <span class="footer-status"><span class="status-dot"></span> Printer online</span>
     </div>
 </footer>
