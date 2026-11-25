@@ -29,10 +29,6 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/epson.php';
 
-// Record liveness before any work, so the watchdog can distinguish a stopped
-// worker from a worker that is running but not making progress.
-set_setting('print_queue_last_run', now());
-
 @set_time_limit(PRINT_BATCH_SECONDS + STATUS_BATCH_SECONDS + (2 * EPSON_TIMEOUT) + 10);
 
 $lock = db_val("SELECT GET_LOCK('printfree_print_queue', 0)");
@@ -40,6 +36,10 @@ if ((int) $lock !== 1) {
     // The previous run is still working. The next cron tick will pick up.
     exit(0);
 }
+
+// Record liveness after winning the worker lock, so a series of skipped cron
+// ticks cannot hide a hung worker that still holds the lock.
+set_setting('print_queue_last_run', now());
 
 $exitCode = 0;
 $messages = [];
