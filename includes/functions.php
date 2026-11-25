@@ -216,10 +216,6 @@ function time_ago(?string $value): string
 
 function database_size_bytes(): int
 {
-    if (db_driver() === 'sqlite') {
-        return is_file(DB_SQLITE_PATH) ? (int) filesize(DB_SQLITE_PATH) : 0;
-    }
-
     try {
         return (int) db_val(
             'SELECT COALESCE(SUM(data_length + index_length), 0)
@@ -951,7 +947,7 @@ function read_photo_upload(array $file, int $position): array
  * Store one photo row, full bytes and thumbnail included, in the database.
  *
  * The blobs are bound as LOBs so MySQL treats them as binary rather than
- * text and SQLite stores them as real BLOBs.
+ * text and MySQL stores them as real BLOBs.
  */
 function insert_order_photo(int $orderId, array $photo): void
 {

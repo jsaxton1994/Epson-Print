@@ -2,8 +2,9 @@
 /**
  * Database connection and small query helpers.
  *
- * Works with either SQLite (default, zero setup) or MySQL. All queries use
- * prepared statements; dates are written by PHP so both drivers agree.
+ * MySQL is the only supported driver. When the password file is missing or
+ * MySQL cannot be reached, the request stops with a 503 page instead of
+ * silently switching to a different database.
  */
 
 declare(strict_types=1);
@@ -13,23 +14,15 @@ function db(): PDO
     return db_connection()['pdo'];
 }
 
-/** The driver actually in use — 'sqlite' when MySQL was unreachable. */
 function db_driver(): string
 {
-    return db_connection()['driver'];
-}
-
-/** True when MySQL was configured but the site fell back to SQLite. */
-function db_using_fallback(): bool
-{
-    return db_connection()['fallback'];
+    return 'mysql';
 }
 
 /**
- * Connect once per request. MySQL is tried when configured; if it cannot be
- * reached the request continues on SQLite instead of failing.
+ * Connect once per request and make sure the MySQL schema exists.
  *
- * @return array{pdo: PDO, driver: string, fallback: bool}
+ * @return array{pdo: PDO, driver: string}
  */
 function db_connection(): array
 {
@@ -39,116 +32,131 @@ function db_connection(): array
         return $state;
     }
 
-    $driver   = DB_DRIVER === 'mysql' ? 'mysql' : 'sqlite';
-    $fallback = false;
-    $pdo      = null;
-
-    if ($driver === 'mysql') {
-        try {
-            $pdo = db_connect_mysql();
-        } catch (Throwable $e) {
-            error_log(sprintf(
-                '[PrintFree] MySQL at %s:%d is unavailable (%s). Using SQLite instead.',
-                DB_HOST,
-                DB_PORT,
-                $e->getMessage()
-            ));
-            $driver   = 'sqlite';
-            $fallback = true;
+    try {
+        if (DB_PASS === '') {
+            throw new RuntimeException(
+                'MySQL password is not configured. Create includes/config.local.php with the database password.'
+            );
         }
+
+        $pdo = db_connect_mysql();
+
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+
+        ensure_database_ready($pdo);
+    } catch (Throwable $e) {
+        error_log('[PrintFree] MySQL is unavailable: ' . $e->getMessage());
+        db_unavailable_response();
     }
 
-    if (!$pdo instanceof PDO) {
-        try {
-            $pdo = db_connect_sqlite();
-        } catch (Throwable $e) {
-            error_log('[PrintFree] database connection failed: ' . $e->getMessage());
-            http_response_code(500);
-            exit('The database is not reachable. Set the DB_* environment variables or check includes/config.php.');
-        }
-    }
-
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
-
-    // Set the state before installing so the installer can see the real driver.
-    $state = ['pdo' => $pdo, 'driver' => $driver, 'fallback' => $fallback];
-
-    ensure_database_ready($pdo, $driver);
+    $state = ['pdo' => $pdo, 'driver' => 'mysql'];
 
     return $state;
-}
-
-function db_connect_sqlite(): PDO
-{
-    $path = DB_SQLITE_PATH;
-    $dir  = dirname($path);
-    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-        throw new RuntimeException('Could not create the database folder: ' . $dir);
-    }
-
-    $pdo = new PDO('sqlite:' . $path, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-    ]);
-    $pdo->exec('PRAGMA foreign_keys = ON');
-    // Sessions write on most requests; wait instead of failing if another
-    // instance holds the database briefly.
-    $pdo->exec('PRAGMA busy_timeout = 5000');
-
-    return $pdo;
 }
 
 function db_connect_mysql(): PDO
 {
     $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, DB_NAME);
 
-    try {
-        return new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_TIMEOUT => 5,
-        ]);
-    } catch (PDOException $e) {
-        // A fresh MySQL server has no database yet — create it once.
-        if (!str_contains($e->getMessage(), '1049') && !str_contains($e->getMessage(), 'Unknown database')) {
-            throw $e;
-        }
-
-        $serverDsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', DB_HOST, DB_PORT);
-        $server    = new PDO($serverDsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_TIMEOUT => 5,
-        ]);
-        $name = str_replace('`', '', DB_NAME);
-        $server->exec("CREATE DATABASE `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-
-        return new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_TIMEOUT => 5,
-        ]);
-    }
+    return new PDO($dsn, DB_USER, DB_PASS, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_TIMEOUT => 5,
+    ]);
 }
 
 /**
  * Create the tables and demo data the first time the site runs.
  */
-function ensure_database_ready(PDO $pdo, string $driver): void
+function ensure_database_ready(PDO $pdo): void
 {
-    $exists = false;
     try {
-        if ($driver === 'sqlite') {
-            $exists = (bool) $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'")->fetchColumn();
-        } else {
-            $exists = (bool) $pdo->query("SHOW TABLES LIKE 'users'")->fetchColumn();
-        }
+        $exists = (bool) $pdo->query("SHOW TABLES LIKE 'users'")->fetchColumn();
     } catch (Throwable $e) {
         $exists = false;
     }
 
     if (!$exists) {
         require_once __DIR__ . '/installer.php';
-        install_database($pdo, $driver);
+        install_database($pdo);
     }
+}
+
+/**
+ * Stop the request with a public 503 page. Details stay in the error log.
+ */
+function db_unavailable_response(): never
+{
+    if (!headers_sent()) {
+        http_response_code(503);
+        header('Retry-After: 300');
+        header('Cache-Control: no-store, max-age=0');
+        header('Content-Type: text/html; charset=utf-8');
+    }
+
+    ?>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>Temporarily unavailable — PrintFree</title>
+    <style>
+        :root { color-scheme: light dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: #f5f2ec;
+            color: #23201c;
+            font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+        main {
+            max-width: 560px;
+            padding: 40px 32px;
+            border: 1px solid #ded7cb;
+            border-radius: 18px;
+            background: #fffdf9;
+            box-shadow: 0 12px 40px rgb(35 32 28 / 8%);
+            text-align: center;
+        }
+        .mark {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 20px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: #f0e7d8;
+            font-size: 24px;
+        }
+        h1 { margin: 0 0 12px; font-size: 1.6rem; line-height: 1.25; }
+        p { margin: 0 0 10px; color: #5c554b; }
+        .small { font-size: .9rem; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #151311; color: #f3eee5; }
+            main { background: #1d1a17; border-color: #37312a; box-shadow: none; }
+            .mark { background: #2b251f; }
+            p { color: #b9b0a4; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="mark" aria-hidden="true">⏳</div>
+        <h1>We’ll be back shortly</h1>
+        <p>The print service is temporarily unavailable because its database is not connected.</p>
+        <p class="small">Please try again in a few minutes. No orders have been lost.</p>
+    </main>
+</body>
+</html>
+    <?php
+    exit;
 }
 
 /* -------------------------------------------------------------------------

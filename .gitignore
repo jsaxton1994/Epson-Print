@@ -1,4 +1,4 @@
-# Local database (customer photos are stored inside it)
+# Legacy SQLite database (the app uses MySQL only and never reads this)
 /storage/database.sqlite
 /storage/logs/*
 

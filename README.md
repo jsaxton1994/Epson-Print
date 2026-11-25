@@ -15,24 +15,25 @@ Demo accounts:
 
 ## Requirements
 
-- PHP 8.1 or newer with `pdo_mysql` (live database) and/or `pdo_sqlite` (fallback), plus `curl`, `fileinfo`, `mbstring` and `gd`
+- PHP 8.1 or newer with `pdo_mysql`, plus `curl`, `fileinfo`, `mbstring` and `gd`
+- A MySQL database (the live site uses cPanel MySQL)
 - Apache with `mod_rewrite` (not required) or Nginx / PHP's built-in server
-- Write access to `storage/`
 
 ## Quick start
 
-1. Upload the folder to your host, or run it locally:
+1. Copy `includes/config.local.example.php` to `includes/config.local.php` and enter the MySQL password. The local file is gitignored.
+2. Upload the folder to your host, or run it locally:
 
    ```bash
    php -S 127.0.0.1:8080 -t public
    ```
 
-   The web root is `public/`. Point Apache, Nginx or your host (including Wasmer) at that folder. If the project root is the document root instead, the bundled `.htaccess` sends visitors to `public/index.php` and links automatically include the `/public/` prefix.
+   The web root is `public/`. Point Apache, Nginx or your host at that folder. If the project root is the document root instead, the bundled `.htaccess` sends visitors to `public/index.php` and links automatically include the `/public/` prefix.
 
-2. Open the site. The first request creates the tables, settings and demo accounts automatically if the database is empty.
-3. Sign in with one of the demo accounts above.
+3. Open the site. The first request creates the tables, settings and demo accounts automatically if the MySQL database is empty.
+4. Sign in with one of the demo accounts above.
 
-The live site uses MySQL; `storage/database.sqlite` is only the automatic fallback if MySQL is unreachable.
+MySQL is the only supported database. If the password file is missing or MySQL is unreachable, the site returns a clear **503** page; it never switches to another database.
 
 ## Folder structure
 
@@ -46,7 +47,7 @@ public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
-storage/             SQLite fallback database (not used while MySQL is up)
+storage/             protected local data (legacy; the app no longer uses it)
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -87,7 +88,7 @@ Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the pri
 
 The live site uses the MySQL database created in cPanel. The non-secret connection defaults (host `localhost`, port, database and user) are in `includes/config.php`. When the `users` table is missing, the installer creates the tables, default settings and the two demo accounts.
 
-**If MySQL cannot be reached, `includes/db.php` falls back to `storage/database.sqlite`** so the site stays available. Admin → Settings shows the driver actually in use and marks a fallback. The SQLite and MySQL schemas are embedded in `includes/installer.php`, so there are no schema files to import or maintain.
+MySQL is the only database driver. If the password file is missing or the connection fails, `includes/db.php` stops the request with a **503** page and logs the technical error; it never falls back to another data store. The MySQL schema is embedded in `includes/installer.php`, so there are no schema files to import or maintain.
 
 The password is **not** in `includes/config.php`. Copy `includes/config.local.example.php` to `includes/config.local.php` on the server and fill in `pass`; the local file is gitignored and overrides the defaults. This keeps `config.php` safe to publish. Deployments merge files with `cp`, so an existing `config.local.php` is preserved.
 
@@ -118,7 +119,7 @@ Until the printer is linked, orders can still be managed and marked printed by h
 - Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 100) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
 - Per-photo upload limit: `MAX_UPLOAD_MB` in `includes/config.php` (Epson allows 10 MB for photo mode). The effective limit is the smaller of this and PHP's `upload_max_filesize` / `post_max_size`.
 - Batch and status work: `PRINT_BATCH_MAX`, `PRINT_BATCH_SECONDS`, `STATUS_BATCH_MAX` and `STATUS_BATCH_SECONDS` in `includes/config.php`.
-- Storage: photos live in the database as BLOBs, so the SQLite file (or MySQL database) grows with every upload. Each order is capped at `MAX_ORDER_STORAGE_MB` (default 5000 MB / 4.9 GB; `0` disables the cap). Photos are inserted one at a time; thumbnails are capped at a 480 px long edge and skipped for images above 30 MP or when GD is unavailable. Admin → Settings shows the current database size.
+- Storage: photos live in the MySQL database as BLOBs, so the database grows with every upload. Each order is capped at `MAX_ORDER_STORAGE_MB` (default 5000 MB / 4.9 GB; `0` disables the cap). Photos are inserted one at a time; thumbnails are capped at a 480 px long edge and skipped for images above 30 MP or when GD is unavailable. Admin → Settings shows the current database size.
 - Sessions: stored in the `sessions` table of the same database instead of PHP's per-instance files, so sign-in and CSRF checks stay valid when a host routes requests to several instances. The table is created automatically on existing installs and expired rows are pruned.
 - PHP limits: `public/.user.ini` requests 12 MB per file, a 128 MB POST and 20 files per request on hosts that honour `.user.ini` (PHP-FPM/Apache). PHP's built-in server ignores it, so the UI falls back to whatever the server reports.
 - If PHP discards an oversized POST, the upload pages detect it and show a friendly "smaller batch" message instead of a CSRF error.

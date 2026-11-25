@@ -9,8 +9,8 @@ declare(strict_types=1);
  * Keep sessions in the shared database instead of each instance's /tmp.
  * Wasmer (and any multi-instance host) routes requests to different workers,
  * so file-based sessions lose the login and CSRF token on the next request.
- * The `sessions` table follows the app's MySQL or SQLite connection and is
- * created on demand, so existing installs pick it up without a migration.
+ * The `sessions` table lives in the MySQL database and is created on demand,
+ * so existing installs pick it up without a migration.
  */
 final class DatabaseSessionHandler implements SessionHandlerInterface
 {
@@ -58,12 +58,11 @@ final class DatabaseSessionHandler implements SessionHandlerInterface
 
         try {
             $this->ensureTable();
-            $sql = db_driver() === 'mysql'
-                ? 'INSERT INTO sessions (id, data, last_activity) VALUES (?, ?, ?)
-                   ON DUPLICATE KEY UPDATE data = VALUES(data), last_activity = VALUES(last_activity)'
-                : 'INSERT OR REPLACE INTO sessions (id, data, last_activity) VALUES (?, ?, ?)';
-
-            db_query($sql, [$id, base64_encode($data), time()]);
+            db_query(
+                'INSERT INTO sessions (id, data, last_activity) VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE data = VALUES(data), last_activity = VALUES(last_activity)',
+                [$id, base64_encode($data), time()]
+            );
 
             return true;
         } catch (Throwable $e) {
@@ -113,26 +112,15 @@ final class DatabaseSessionHandler implements SessionHandlerInterface
         }
 
         try {
-            if (db_driver() === 'mysql') {
-                db()->exec(
-                    'CREATE TABLE IF NOT EXISTS sessions (
-                        id VARCHAR(128) NOT NULL,
-                        data LONGTEXT NOT NULL,
-                        last_activity INT UNSIGNED NOT NULL,
-                        PRIMARY KEY (id),
-                        KEY sessions_activity_idx (last_activity)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-                );
-            } else {
-                db()->exec(
-                    'CREATE TABLE IF NOT EXISTS sessions (
-                        id TEXT PRIMARY KEY,
-                        data TEXT NOT NULL,
-                        last_activity INTEGER NOT NULL
-                    )'
-                );
-                db()->exec('CREATE INDEX IF NOT EXISTS idx_sessions_activity ON sessions (last_activity)');
-            }
+            db()->exec(
+                'CREATE TABLE IF NOT EXISTS sessions (
+                    id VARCHAR(128) NOT NULL,
+                    data LONGTEXT NOT NULL,
+                    last_activity INT UNSIGNED NOT NULL,
+                    PRIMARY KEY (id),
+                    KEY sessions_activity_idx (last_activity)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
 
             $this->tableReady = true;
         } catch (Throwable $e) {

@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.0.14';
+const APP_VERSION = '1.1.0';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -35,12 +35,11 @@ const APP_URL = '';
  |  and overrides these defaults. Copy config.local.example.php to create it.
  |  This file therefore stays safe to publish.
  |
- |  If MySQL cannot be reached, db.php falls back to the local SQLite file
- |  at DB_SQLITE_PATH so the site stays available.
+ |  MySQL is the only supported database. If the password file is missing or
+ |  MySQL is unreachable, the site returns a 503 page instead of falling back.
  * ---------------------------------------------------------------------- */
 
 $dbConfig = [
-    'driver' => 'mysql',
     'host'   => 'localhost',
     'port'   => 3306,
     'name'   => 'snapprin_snapprints',
@@ -56,14 +55,12 @@ if (is_file($configLocal)) {
     }
 }
 
-define('DB_DRIVER', $dbConfig['driver'] === 'mysql' ? 'mysql' : 'sqlite');
+define('DB_DRIVER', 'mysql');
 define('DB_HOST', (string) $dbConfig['host']);
 define('DB_PORT', (int) $dbConfig['port']);
 define('DB_NAME', (string) $dbConfig['name']);
 define('DB_USER', (string) $dbConfig['user']);
 define('DB_PASS', (string) $dbConfig['pass']);
-
-const DB_SQLITE_PATH = __DIR__ . '/../storage/database.sqlite';
 
 /* -------------------------------------------------------------------------
  |  Uploads
