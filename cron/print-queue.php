@@ -190,6 +190,31 @@ try {
             sync_order_status((int) $orderId, 'Cron');
         }
 
+        // Final completion sweep: even if no job was checked in this run, an
+        // order whose photos are all completed must not stay stuck as
+        // "printing". sync_order_status records the completion event.
+        $finishedOrders = db_all(
+            "SELECT o.id
+             FROM orders o
+             WHERE o.status IN ('accepted', 'printing', 'failed')
+               AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id)
+               AND NOT EXISTS (
+                   SELECT 1 FROM order_photos p
+                   WHERE p.order_id = o.id AND p.status <> 'completed'
+               )"
+        );
+        $completedOrders = 0;
+
+        foreach ($finishedOrders as $finishedOrder) {
+            if (sync_order_status((int) $finishedOrder['id'], 'Cron') === 'completed') {
+                $completedOrders++;
+            }
+        }
+
+        if ($completedOrders > 0) {
+            $messages[] = $completedOrders . ' order' . ($completedOrders === 1 ? '' : 's') . ' marked completed.';
+        }
+
         if ($checked > 0) {
             $messages[] = $checked . ' Epson job' . ($checked === 1 ? '' : 's') . ' checked.';
         }

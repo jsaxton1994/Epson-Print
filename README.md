@@ -96,7 +96,7 @@ Accepted orders are printed without another click. Add this command to a cPanel 
 Each run:
 
 - sends pending photos from up to five `accepted` orders, oldest first, within the existing print batch/time limits;
-- checks the status of Epson jobs already `printing`, marking photos and orders complete or failed;
+- checks the status of Epson jobs already `printing` and marks each order `completed` automatically as soon as its last photo finishes, with no admin click;
 - claims each photo with a MySQL named lock and re-checks its status after claiming, so two cron runs or a cron run and **Send now** cannot send the same photo at once;
 - leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
 
