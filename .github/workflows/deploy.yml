@@ -88,6 +88,7 @@ jobs:
 
             if [ "$curl_status" -eq 0 ]; then
               connected=1
+              api_base="https://${candidate}"
               echo "Connected to ${candidate} (HTTP ${http_code})."
               break
             fi
@@ -98,7 +99,9 @@ jobs:
           print_cpanel_failure() {
             local detail=""
             if jq -e . >/dev/null 2>&1 <<<"$response"; then
-              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[], (.result.warnings // [])[], (.error // empty), (.message // empty)] | map(select(. != null and . != "")) | join(" | ")' <<<"$response" 2>/dev/null || true)
+              # cPanel's /execute endpoint returns the payload unwrapped
+              # ({"status":1,...}), while the API docs show it under "result".
+              detail=$(jq -r '[(.result.errors // .errors // [])[], (.result.messages // .messages // [])[], (.result.warnings // .warnings // [])[], (.error // empty), (.message // empty)] | map(select(. != null and . != "")) | join(" | ")' <<<"$response" 2>/dev/null || true)
             fi
             if [ -z "$detail" ]; then
               # Fall back to a raw snippet: annotations are readable without
@@ -122,7 +125,7 @@ jobs:
             printf '%s\n' "$response"
             echo "--- cPanel error message ---"
             if jq -e . >/dev/null 2>&1 <<<"$response"; then
-              jq -r '(.result.errors // [])[], (.result.messages // [])[], (.error // empty)' <<<"$response"
+              jq -r '(.result.errors // .errors // [])[], (.result.messages // .messages // [])[], (.error // empty)' <<<"$response"
             else
               echo "(response body is not JSON)"
             fi
@@ -145,11 +148,30 @@ jobs:
             exit 1
           fi
 
-          jq '{status: .result.status, deploy_id: .result.data.deploy_id, errors: .result.errors, messages: .result.messages}' <<<"$response"
+          jq '{status: (.result.status // .status), deploy_id: (.result.data.deploy_id // .data.deploy_id), errors: (.result.errors // .errors), messages: (.result.messages // .messages)}' <<<"$response"
 
-          if [ "$(jq -r '.result.status // 0' <<<"$response")" != "1" ]; then
+          if [ "$(jq -r '.result.status // .status // 0' <<<"$response")" != "1" ]; then
             print_cpanel_failure "cPanel refused the deployment (HTTP ${http_code})."
             exit 1
+          fi
+
+          deploy_id=$(jq -r '.result.data.deploy_id // .data.deploy_id // empty' <<<"$response")
+          echo "Deployment id: ${deploy_id:-unknown}"
+
+          if [ -n "$deploy_id" ]; then
+            state=""
+            for attempt in $(seq 1 6); do
+              retrieve=$(curl -sS --max-time 30 \
+                -H "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+                "${api_base}/execute/VersionControlDeployment/retrieve" || true)
+              state=$(jq -c --arg id "$deploy_id" '(.result.data // .data // [])[] | select((.deploy_id|tostring) == $id) | {timestamps, repository_state}' <<<"$retrieve" 2>/dev/null || true)
+              echo "Deployment status ${attempt}: ${state:-not listed yet}"
+              case "$state" in *succeeded*|*failed*|*canceled*) break ;; esac
+              sleep 5
+            done
+            if [ -n "$state" ]; then
+              echo "::notice title=cPanel deployment ${deploy_id}::${state}"
+            fi
           fi
 
       - name: Confirm the deployed version is live
