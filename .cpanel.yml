@@ -4,3 +4,4 @@ deployment:
     - export DEPLOYPATH=/home/snapprin/public_html/
     - /bin/cp -R ./* $DEPLOYPATH
     - /bin/cp -f ./.htaccess $DEPLOYPATH
+    - /bin/rm -rf "$DEPLOYPATH/database"
