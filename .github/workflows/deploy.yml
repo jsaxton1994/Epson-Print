@@ -210,6 +210,30 @@ jobs:
             fi
           fi
 
+          # The account defaults cap uploads at 2 MB per file and 8 MB per POST.
+          # Apply the same PHP limits as cPanel's MultiPHP INI Editor so photo
+          # uploads can use the app's 10 MB cap. This is best-effort; a failed
+          # ini change must not roll back an otherwise successful deployment.
+          limit_file=$(mktemp)
+          limit_code=$(curl -sS --max-time 30 -o "$limit_file" -w '%{http_code}' \
+            -H "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --get "${api_base}/execute/LangPHP/php_ini_set_user_basic_directives" \
+            --data-urlencode "type=vhost" \
+            --data-urlencode "vhost=snapprints.co.uk" \
+            --data-urlencode "directive-1=upload_max_filesize:12M" \
+            --data-urlencode "directive-2=post_max_size:128M" \
+            --data-urlencode "directive-3=memory_limit:256M" || true)
+          limit_response=$(cat "$limit_file")
+          rm -f "$limit_file"
+          if jq -e . >/dev/null 2>&1 <<<"$limit_response" \
+            && [ "$(jq -r '.result.status // .status // 0' <<<"$limit_response")" = "1" ]; then
+            echo "::notice title=PHP upload limits::Applied 12M upload, 128M POST and 256M memory for snapprints.co.uk."
+          else
+            echo "::warning title=PHP upload limits::Could not update the vhost PHP limits (HTTP ${limit_code})."
+            echo "--- PHP ini response body ---"
+            printf '%s\n' "$limit_response"
+          fi
+
       - name: Confirm the deployed version is live
         env:
           SITE_URL: https://snapprints.co.uk/public/index.php
