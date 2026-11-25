@@ -98,7 +98,13 @@ jobs:
           print_cpanel_failure() {
             local detail=""
             if jq -e . >/dev/null 2>&1 <<<"$response"; then
-              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[]] | map(select(. != null and . != "")) | join(" | ")' <<<"$response" 2>/dev/null || true)
+              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[], (.result.warnings // [])[], (.error // empty), (.message // empty)] | map(select(. != null and . != "")) | join(" | ")' <<<"$response" 2>/dev/null || true)
+            fi
+            if [ -z "$detail" ]; then
+              # Fall back to a raw snippet: annotations are readable without
+              # signing in, unlike the job log and summary.
+              detail=$(printf '%s' "$response" | head -c 600 | tr '\r\n' '  ')
+              detail=${detail//'%'/'%25'}
             fi
             {
               echo "## cPanel deployment failed"
