@@ -143,7 +143,25 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 <?php endif; ?>
 
-<div class="stats-grid">
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h3>Queue monitoring</h3>
+            <p>Worker heartbeat and alert status</p>
+        </div>
+    </div>
+    <div class="panel-body">
+        <div class="summary-list" style="margin:0">
+            <div class="summary-row"><span>Queue worker</span><strong><?= e($queueWorkerState) ?></strong></div>
+            <div class="summary-row"><span>Worker last run</span><strong><?= $queueHealth['last_run'] !== null ? e(time_ago((string) $queueHealth['last_run'])) : 'Never' ?></strong></div>
+            <div class="summary-row"><span>Watchdog</span><strong><?= e($queueWatchdogState) ?></strong></div>
+            <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
+            <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
+        </div>
+    </div>
+</section>
+
+<div class="stats-grid" style="margin-top:20px">
     <?php
     stat_card('Waiting in queue', (string) $counts['accepted'], 'clock', 'amber', $counts['pending'] > 0 ? $counts['pending'] . ' awaiting acceptance' : 'No new orders');
     stat_card('Printing now', (string) $counts['printing'], 'printer', 'violet');
@@ -283,11 +301,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <div class="panel-body">
                 <div class="summary-list">
                     <div class="summary-row"><span>Queue status</span><strong><?= setting('accepting_orders', '1') === '1' ? 'Accepting orders' : 'Paused' ?></strong></div>
-                    <div class="summary-row"><span>Queue worker</span><strong><?= e($queueWorkerState) ?></strong></div>
-                    <div class="summary-row"><span>Worker last run</span><strong><?= $queueHealth['last_run'] !== null ? e(time_ago((string) $queueHealth['last_run'])) : 'Never' ?></strong></div>
-                    <div class="summary-row"><span>Watchdog</span><strong><?= e($queueWatchdogState) ?></strong></div>
-                    <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
-                    <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
                     <div class="summary-row"><span>Failed jobs</span><strong><?= (int) $counts['failed'] ?></strong></div>
                     <div class="summary-row"><span>All-time orders</span><strong><?= (int) $counts['total'] ?></strong></div>
                     <div class="summary-row"><span>Photos per order</span><strong>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
