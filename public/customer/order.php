@@ -289,8 +289,9 @@ if ($uploadedNow > 0): ?>
 
         <div class="device-card">
             <div class="device-top">
+                <?php $printerStatus = epson_status($epson); ?>
                 <span class="device-label">Printing on</span>
-                <span class="device-state"><span class="status-dot"></span> <?= $epson->isConnected() ? 'Online' : 'Ready' ?></span>
+                <span class="device-state<?= $printerStatus['key'] === 'online' ? '' : ' is-off' ?>"><span class="status-dot"></span> <?= e($printerStatus['label']) ?></span>
             </div>
             <div class="device-name">
                 <span class="device-icon"><?= icon('printer') ?></span>

@@ -178,9 +178,10 @@ function site_footer(): void
         </div>
     </div>
     <div class="container footer-bottom">
+        <?php $printerStatus = epson_status(); ?>
         <span>&copy; <?= date('Y') ?> <?= e(site_name()) ?>. Free for everyone, always.</span>
         <span class="footer-version">v<?= e(APP_VERSION) ?></span>
-        <span class="footer-status"><span class="status-dot"></span> Printer online</span>
+        <span class="footer-status<?= $printerStatus['key'] === 'online' ? '' : ' is-off' ?>"><span class="status-dot"></span> <?= e($printerStatus['footer']) ?></span>
     </div>
 </footer>
 <script src="<?= e(asset('js/main.js')) ?>" defer></script>

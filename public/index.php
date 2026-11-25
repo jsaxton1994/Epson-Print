@@ -12,6 +12,9 @@ $startUrl = $user === null
     ? url('public/register.php')
     : ($user['role'] === 'admin' ? url('admin/index.php') : url('customer/index.php'));
 
+$printerStatus = epson_status();
+$printerOnline = $printerStatus['key'] === 'online';
+
 site_head('', ['active' => 'home']);
 ?>
 
@@ -24,11 +27,11 @@ site_head('', ['active' => 'home']);
 
     <div class="container hero-grid">
         <div class="hero-copy">
-            <span class="hero-badge"><span class="status-dot"></span> Online now · 4 × 6 photo prints</span>
+            <span class="hero-badge<?= $printerOnline ? '' : ' is-off' ?>"><span class="status-dot"></span> <?= $printerOnline ? 'Online now · 4 × 6 photo prints' : '4 × 6 photo prints · ' . ($printerStatus['key'] === 'not_linked' ? 'link pending' : 'setup needed') ?></span>
             <h1>Your photos.<br><span class="grad-text">Printed free.</span></h1>
             <p class="hero-lead">
                 Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos — they upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time — choose 4 × 6 and borderless, and they
-                go straight to our Epson ET-2926 on real photo paper. No credits, no subscriptions, no card details.
+                <?= $printerOnline ? 'go straight to' : 'queue for' ?> our Epson ET-2926 on real photo paper. No credits, no subscriptions, no card details.
             </p>
             <div class="hero-actions">
                 <a class="btn btn-primary btn-lg" href="<?= e($startUrl) ?>"><?= icon('image') ?> Print your first photo</a>
@@ -55,7 +58,7 @@ site_head('', ['active' => 'home']);
                     <span class="sheet-badge">4 × 6</span>
                 </figure>
 
-                <div class="printer" aria-hidden="true">
+                <div class="printer<?= $printerOnline ? '' : ' is-off' ?>" aria-hidden="true">
                     <div class="printer-slot"></div>
                     <div class="printer-face">
                         <span class="printer-model">Epson <strong>ET-2926</strong></span>
@@ -67,8 +70,8 @@ site_head('', ['active' => 'home']);
                     <div class="printer-tray"></div>
                 </div>
 
-                <div class="float-chip chip-a"><?= icon('wifi') ?> Connected</div>
-                <div class="float-chip chip-b"><?= icon('check') ?> Photo sent to printer</div>
+                <div class="float-chip chip-a<?= $printerOnline ? '' : ' is-off' ?>"><?= icon($printerOnline ? 'wifi' : 'printer') ?> <?= $printerOnline ? 'Connected' : 'Not connected' ?></div>
+                <div class="float-chip chip-b"><?= icon('image') ?> Photos print here</div>
                 <div class="float-chip chip-c"><?= icon('image') ?> 4 × 6 · Borderless</div>
             </div>
         </div>
@@ -138,7 +141,7 @@ site_head('', ['active' => 'home']);
 
         <div class="printer-card reveal reveal-delay-1">
             <div class="printer-card-head">
-                <span class="printer-badge"><?= icon('check') ?> Online</span>
+                <span class="printer-badge<?= $printerOnline ? '' : ' is-off' ?>"><?= icon($printerOnline ? 'check' : 'printer') ?> <?= e($printerStatus['label']) ?></span>
                 <span class="mono">Epson Connect API v2</span>
             </div>
             <h3>Epson ET-2926</h3>
@@ -246,7 +249,7 @@ site_head('', ['active' => 'home']);
 
             <details class="faq-item reveal">
                 <summary>Can I print from my phone?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Yes. The whole site works in a mobile browser — choose a photo from your camera roll, set 4 × 6 and send it. No Epson app or Epson account is needed; the printer is already linked.</p></div>
+                <div class="faq-body"><p>Yes. The whole site works in a mobile browser — choose a photo from your camera roll, set 4 × 6 and send it. No Epson app or Epson account is needed; the print desk handles the printer for you.</p></div>
             </details>
 
             <details class="faq-item reveal">

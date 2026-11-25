@@ -488,3 +488,24 @@ function epson_connected(): bool
 {
     return EpsonClient::fromSettings()->isConnected();
 }
+
+/**
+ * Public-facing printer state: online, credentials saved but not linked, or
+ * no Epson credentials at all.
+ *
+ * @return array{key: string, label: string, footer: string}
+ */
+function epson_status(?EpsonClient $client = null): array
+{
+    $client ??= EpsonClient::fromSettings();
+
+    if ($client->isConnected()) {
+        return ['key' => 'online', 'label' => 'Online', 'footer' => 'Printer online'];
+    }
+
+    if ($client->isConfigured()) {
+        return ['key' => 'not_linked', 'label' => 'Not linked', 'footer' => 'Printer not linked'];
+    }
+
+    return ['key' => 'not_set_up', 'label' => 'Not set up', 'footer' => 'Printer not set up'];
+}

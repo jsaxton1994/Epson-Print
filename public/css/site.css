@@ -168,6 +168,15 @@
     box-shadow: var(--shadow-xs);
 }
 
+.hero-badge.is-off .status-dot,
+.footer-status.is-off .status-dot {
+    background: #94a0b8;
+    box-shadow: 0 0 0 4px rgba(148, 160, 184, .14);
+    animation: none;
+}
+
+.footer-status.is-off { color: var(--muted); }
+
 .hero h1 {
     font-size: clamp(2.55rem, 5.1vw, 4.05rem);
     letter-spacing: -.045em;
@@ -381,6 +390,12 @@
     animation: pulse 2.6s var(--ease) infinite;
 }
 
+.printer.is-off .printer-led {
+    background: #94a0b8;
+    box-shadow: 0 0 0 4px rgba(148, 160, 184, .14);
+    animation: none;
+}
+
 .printer-lines {
     position: absolute;
     top: 74px;
@@ -434,6 +449,9 @@
 }
 
 .float-chip .icon { width: 15px; height: 15px; color: var(--brand); }
+
+.float-chip.is-off { color: var(--muted); }
+.float-chip.is-off .icon { color: var(--muted); }
 
 .chip-a { top: 32px; right: 2%; animation-delay: -.4s; }
 .chip-b { top: 43%; left: -2%; animation-delay: -2.2s; color: #0a7d70; }
@@ -591,6 +609,12 @@
 }
 
 .printer-badge .icon { width: 14px; height: 14px; }
+
+.printer-badge.is-off {
+    background: #f2f4f9;
+    border-color: #e3e8f2;
+    color: #5d6a82;
+}
 
 .printer-card h3 { font-size: 1.5rem; margin-bottom: 2px; }
 .printer-card .printer-sub { margin: 0; color: var(--muted); font-size: .88rem; }

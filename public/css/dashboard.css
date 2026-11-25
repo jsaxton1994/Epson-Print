@@ -603,6 +603,7 @@
 
 .device-state.is-off { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .18); color: rgba(255, 255, 255, .7); }
 .device-state .status-dot { background: #2ee6b0; box-shadow: 0 0 0 4px rgba(46, 230, 176, .14); }
+.device-state.is-off .status-dot { background: #94a0b8; box-shadow: 0 0 0 4px rgba(148, 160, 184, .18); animation: none; }
 
 .device-name {
     position: relative;
