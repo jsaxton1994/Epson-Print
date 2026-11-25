@@ -98,12 +98,19 @@ jobs:
           print_cpanel_failure() {
             local detail=""
             if jq -e . >/dev/null 2>&1 <<<"$response"; then
-              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[]] | map(select(. != null and . != "")) | join(" | ")' <<<"$response")
+              detail=$(jq -r '[(.result.errors // [])[], (.result.messages // [])[]] | map(select(. != null and . != "")) | join(" | ")' <<<"$response" 2>/dev/null || true)
             fi
+            {
+              echo "## cPanel deployment failed"
+              echo ""
+              echo "\`\`\`"
+              printf '%s\n' "$response"
+              echo "\`\`\`"
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             if [ -n "$detail" ]; then
               echo "::error title=cPanel deployment failed::${1} ${detail}"
             else
-              echo "::error::$1"
+              echo "::error::$1 (see the job summary for cPanel's response)"
             fi
             echo "--- cPanel response body ---"
             printf '%s\n' "$response"
