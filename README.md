@@ -47,7 +47,6 @@ public/admin/        admin area (dashboard, orders, customers, settings)
 public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
-storage/             protected local data (legacy; the app no longer uses it)
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -109,7 +108,7 @@ Until the printer is linked, orders can still be managed and marked printed by h
 
 - Passwords use `password_hash()`, sessions use `HttpOnly` + `SameSite` cookies, all forms are CSRF protected.
 - Every query uses prepared statements; output is escaped with `e()`.
-- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `storage/` are blocked with `.htaccess`.
+- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` is blocked with `.htaccess`.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
 - Admin: deleting a customer or an order also deletes all of its stored photos.
 

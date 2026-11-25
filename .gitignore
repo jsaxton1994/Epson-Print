@@ -1,7 +1,3 @@
-# Legacy SQLite database (the app uses MySQL only and never reads this)
-/storage/database.sqlite
-/storage/logs/*
-
 # Live database password (copy includes/config.local.example.php)
 /includes/config.local.php
 

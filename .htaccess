@@ -9,10 +9,9 @@ DirectoryIndex public/index.php
     php_value post_max_size 128M
 </IfModule>
 
-# Application-only folders: block every direct request to them.
+# Application-only folder: block every direct request to it.
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^storage(?:/|$) - [F,L,NC]
     RewriteRule ^includes(?:/|$) - [F,L,NC]
 </IfModule>
 

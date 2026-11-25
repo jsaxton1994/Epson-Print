@@ -5,3 +5,4 @@ deployment:
     - /bin/cp -R ./* $DEPLOYPATH
     - /bin/cp -f ./.htaccess $DEPLOYPATH
     - /bin/rm -rf "$DEPLOYPATH/database"
+    - /bin/rm -rf "$DEPLOYPATH/storage"
