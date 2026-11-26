@@ -222,7 +222,7 @@ hr {
         background var(--speed) var(--ease), border-color var(--speed) var(--ease), color var(--speed) var(--ease);
 }
 
-.btn .icon { width: 18px; height: 18px; }
+.btn .icon { width: 18px; height: 18px; flex: none; }
 
 .btn:hover {
     transform: translateY(-1px);

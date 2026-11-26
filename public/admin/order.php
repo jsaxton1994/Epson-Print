@@ -473,7 +473,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                             <button class="btn btn-ghost btn-sm" type="submit"><?= icon('printer') ?> Print</button>
                                         </form>
                                     <?php endif; ?>
-                                    <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?></a>
+                                    <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?> Download</a>
                                     <form method="post" action="<?= e($back) ?>" data-confirm="<?= e(
                                         'Remove \'' . $photo['file_name'] . '\' from this order? The stored photo is deleted permanently.'
                                         . ($photo['status'] === 'printing' || $photo['status'] === 'completed'
@@ -484,7 +484,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="remove_photo">
                                         <input type="hidden" name="photo_id" value="<?= (int) $photo['id'] ?>">
-                                        <button class="btn btn-ghost btn-sm" type="submit" aria-label="Remove <?= e($photo['file_name']) ?> from this order"><?= icon('trash') ?></button>
+                                        <button class="btn btn-danger btn-sm" type="submit"><?= icon('trash') ?> Remove</button>
                                     </form>
                                 </div>
                             </td>
