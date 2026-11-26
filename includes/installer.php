@@ -81,6 +81,7 @@ CREATE TABLE order_photos (
     epson_job_id  VARCHAR(64)  DEFAULT NULL,
     error_message TEXT         DEFAULT NULL,
     printed_at    DATETIME     DEFAULT NULL,
+    print_started_at DATETIME  DEFAULT NULL,
     created_at    DATETIME     NOT NULL,
     PRIMARY KEY (id),
     KEY photos_order_idx (order_id),

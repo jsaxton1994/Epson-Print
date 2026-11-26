@@ -456,6 +456,149 @@ function order_photo_count(int $orderId): int
 }
 
 /**
+ * Timestamp support for stuck-print detection.
+ *
+ * `order_photos.print_started_at` ships in the schema for new installs and is
+ * added with an ALTER on existing ones the first time it is needed. If the
+ * ALTER is refused, stuck detection is simply switched off: sending photos and
+ * rendering pages keep working because the column is never part of the main
+ * photo listing.
+ */
+function print_started_column_ready(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (setting('schema_print_started_at') === 'ready') {
+        return $ready = true;
+    }
+
+    try {
+        $exists = (int) db_val(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_photos' AND COLUMN_NAME = 'print_started_at'"
+        );
+
+        if ($exists === 0) {
+            db()->exec('ALTER TABLE order_photos ADD COLUMN print_started_at DATETIME DEFAULT NULL AFTER printed_at');
+        }
+
+        set_setting('schema_print_started_at', 'ready');
+
+        return $ready = true;
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not add order_photos.print_started_at: ' . $e->getMessage());
+
+        return $ready = false;
+    }
+}
+
+/**
+ * When each photo of an order was handed to the printer.
+ *
+ * @return array<int, string|null> photo id => print start time
+ */
+function order_photo_print_started(int $orderId): array
+{
+    if (!print_started_column_ready()) {
+        return [];
+    }
+
+    try {
+        $rows = db_all('SELECT id, print_started_at FROM order_photos WHERE order_id = ?', [$orderId]);
+    } catch (Throwable) {
+        return [];
+    }
+
+    $map = [];
+    foreach ($rows as $row) {
+        $map[(int) $row['id']] = $row['print_started_at'] !== null ? (string) $row['print_started_at'] : null;
+    }
+
+    return $map;
+}
+
+/**
+ * Whole minutes a photo has been with the printer, or null when unknown.
+ */
+function photo_printing_minutes(?string $startedAt): ?int
+{
+    if ($startedAt === null || $startedAt === '') {
+        return null;
+    }
+
+    $timestamp = strtotime($startedAt);
+
+    return $timestamp === false ? null : max(0, (int) floor((time() - $timestamp) / 60));
+}
+
+/**
+ * Fail photos Epson has left in "printing" far beyond any normal job.
+ *
+ * A job that never reports back would otherwise keep its order in "printing"
+ * for ever, and the worker would keep re-checking the same oldest jobs while
+ * newer photos wait their turn. Failing them puts the order back in the admin's
+ * hands with the existing Retry & queue button.
+ *
+ * @return list<array{id:mixed,order_id:mixed,file_name:mixed}>
+ */
+function release_stuck_photos(string $actor = 'Cron'): array
+{
+    if (!print_started_column_ready()) {
+        return [];
+    }
+
+    $cutoff = date('Y-m-d H:i:s', time() - (PRINT_JOB_STUCK_MINUTES * 60));
+
+    try {
+        $stuck = db_all(
+            "SELECT p.id, p.order_id, p.file_name
+             FROM order_photos p
+             JOIN orders o ON o.id = p.order_id
+             WHERE p.status = 'printing'
+               AND o.status <> 'cancelled'
+               AND COALESCE(p.print_started_at, p.created_at) < ?
+             ORDER BY p.id ASC",
+            [$cutoff]
+        );
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not look for stuck prints: ' . $e->getMessage());
+
+        return [];
+    }
+
+    $perOrder = [];
+
+    foreach ($stuck as $photo) {
+        db_update('order_photos', [
+            'status'        => 'failed',
+            'printed_at'    => null,
+            'error_message' => 'No completion from the printer after ' . PRINT_JOB_STUCK_MINUTES
+                . ' minutes, so it was marked as stuck. Check the printer, then print it again.',
+        ], 'id = ?', [(int) $photo['id']]);
+
+        $orderId = (int) $photo['order_id'];
+        $perOrder[$orderId] = ($perOrder[$orderId] ?? 0) + 1;
+    }
+
+    foreach ($perOrder as $orderId => $count) {
+        $status = sync_order_status($orderId, $actor);
+        log_order_event(
+            $orderId,
+            $status,
+            $count . ' photo' . ($count === 1 ? ' was' : 's were')
+                . ' stuck at the printer and released so ' . ($count === 1 ? 'it' : 'they') . ' can be retried.',
+            $actor
+        );
+    }
+
+    return $stuck;
+}
+
+/**
  * Send one photo to Epson and record the job against that photo.
  *
  * Shared by the admin order page and the automatic print-queue cron. A MySQL
@@ -512,12 +655,20 @@ function send_photo_to_printer(
         try {
             $job = $epson->printPhoto($order, $photo);
 
-            db_update('order_photos', [
+            $started = [
                 'status'        => 'printing',
                 'epson_job_id'  => (string) $job['jobId'],
                 'error_message' => null,
                 'printed_at'    => null,
-            ], 'id = ?', [$photoId]);
+            ];
+
+            // Somewhere to measure a stuck job from. Skipped on installs where
+            // the column could not be added, so the send still succeeds.
+            if (print_started_column_ready()) {
+                $started['print_started_at'] = now();
+            }
+
+            db_update('order_photos', $started, 'id = ?', [$photoId]);
 
             // Treat a successful send as queue progress so the watchdog does
             // not flag a large accepted order that is still moving.
@@ -555,7 +706,8 @@ function accept_order_for_printing(int $orderId, string $actor): void
 {
     db_query(
         "UPDATE order_photos
-         SET status = 'pending', epson_job_id = NULL, printed_at = NULL, error_message = NULL
+         SET status = 'pending', epson_job_id = NULL, printed_at = NULL, error_message = NULL"
+            . (print_started_column_ready() ? ', print_started_at = NULL' : '') . "
          WHERE order_id = ? AND status IN ('failed', 'cancelled')",
         [$orderId]
     );

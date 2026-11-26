@@ -223,6 +223,16 @@ try {
             $messages[] = $checked . ' Epson job' . ($checked === 1 ? '' : 's') . ' checked.';
         }
     }
+
+    // Photos the printer never reports back on are released here, whether or
+    // not the printer is currently linked, so an order cannot sit in
+    // "printing" for ever.
+    $stuck = release_stuck_photos('Cron');
+
+    if ($stuck !== []) {
+        $messages[] = count($stuck) . ' stuck photo' . (count($stuck) === 1 ? ' was' : 's were')
+            . ' released after ' . PRINT_JOB_STUCK_MINUTES . ' minutes for a retry.';
+    }
 } catch (Throwable $e) {
     $exitCode = 1;
     $errors[] = $e->getMessage();

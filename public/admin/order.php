@@ -60,7 +60,8 @@ if (is_post()) {
             // Put the whole order back in the queue and send it in batches.
             db_query(
                 "UPDATE order_photos
-                 SET status = 'pending', epson_job_id = NULL, printed_at = NULL, error_message = NULL
+                 SET status = 'pending', epson_job_id = NULL, printed_at = NULL, error_message = NULL"
+                    . (print_started_column_ready() ? ', print_started_at = NULL' : '') . "
                  WHERE order_id = ?",
                 [$orderId]
             );
@@ -202,12 +203,43 @@ if (is_post()) {
         redirect($back);
     }
 
+    if ($action === 'release_photo') {
+        $photoId = (int) input('photo_id', '0');
+        $photo   = db_one(
+            'SELECT id, status FROM order_photos WHERE id = ? AND order_id = ?',
+            [$photoId, $orderId]
+        );
+
+        if ($photo === null || $photo['status'] !== 'printing') {
+            flash('error', 'That photo is not waiting on the printer any more.');
+            redirect($back);
+        }
+
+        db_update('order_photos', [
+            'status'        => 'failed',
+            'printed_at'    => null,
+            'error_message' => 'Released by ' . $admin['name']
+                . ' while waiting on the printer. Print it again once the printer is ready.',
+        ], 'id = ?', [$photoId]);
+
+        sync_order_status($orderId, (string) $admin['name']);
+        db_update('orders', ['updated_at' => now()], 'id = ?', [$orderId]);
+
+        flash('success', 'Photo released. It is marked failed so you can print it again.');
+        redirect($back);
+    }
+
     if ($action === 'remove_photos') {
         $raw = $_POST['photo_ids'] ?? [];
-        $ids = array_values(array_unique(array_filter(
-            array_map(static fn (mixed $id): int => (int) $id, is_array($raw) ? $raw : [$raw]),
-            static fn (int $id): bool => $id > 0
-        )));
+        $ids = [];
+
+        foreach (is_array($raw) ? $raw : [$raw] as $value) {
+            if (is_scalar($value) && (int) $value > 0) {
+                $ids[(int) $value] = true;
+            }
+        }
+
+        $ids = array_keys($ids);
 
         if ($ids === []) {
             flash('error', 'Tick at least one photo to remove it from the order.');
@@ -275,6 +307,7 @@ if (is_post()) {
 
 $photos      = order_photos($orderId);
 $count       = count($photos);
+$printStarted = order_photo_print_started($orderId);
 $events      = order_events($orderId);
 $quality     = quality_options()[$order['print_quality']] ?? ucfirst((string) $order['print_quality']);
 $totalBytes  = array_sum(array_map(static fn (array $p): int => (int) $p['file_size'], $photos));
@@ -478,7 +511,15 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                 <?php endif; ?>
                             </td>
                             <td class="nowrap muted"><?= (int) $photo['image_width'] > 0 ? (int) $photo['image_width'] . ' × ' . (int) $photo['image_height'] : '—' ?></td>
-                            <td><?= status_badge($photo['status']) ?></td>
+                            <td>
+                                <?= status_badge($photo['status']) ?>
+                                <?php $printingFor = $photo['status'] === 'printing'
+                                    ? photo_printing_minutes($printStarted[(int) $photo['id']] ?? null)
+                                    : null; ?>
+                                <?php if ($printingFor !== null): ?>
+                                    <span class="muted nowrap" style="font-size:.75rem">· <?= $printingFor ?> min</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="mono muted nowrap"><?= e($photo['epson_job_id'] ?: '—') ?></td>
                             <td class="cell-actions">
                                 <div class="table-actions">
@@ -488,6 +529,14 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                             <input type="hidden" name="action" value="print_photo">
                                             <input type="hidden" name="photo_id" value="<?= (int) $photo['id'] ?>">
                                             <button class="btn btn-ghost btn-sm" type="submit"><?= icon('printer') ?> Print</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <?php if ($photo['status'] === 'printing'): ?>
+                                        <form method="post" action="<?= e($back) ?>" data-confirm="Release this print? Check the printer first — the photo is marked failed so it can be sent again, which risks a duplicate sheet if the first one is still coming.">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="release_photo">
+                                            <input type="hidden" name="photo_id" value="<?= (int) $photo['id'] ?>">
+                                            <button class="btn btn-ghost btn-sm" type="submit"><?= icon('refresh') ?> Release</button>
                                         </form>
                                     <?php endif; ?>
                                     <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?> Download</a>

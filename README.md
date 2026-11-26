@@ -82,7 +82,7 @@ The order status is derived from its photos:
 5. The queue worker creates **one Epson job per photo**, sending up to `PRINT_BATCH_MAX` photos per order with a `PRINT_BATCH_SECONDS` wall-clock budget. A 100-photo order is therefore spread across several cron runs instead of one long request.
 6. Epson job status is refreshed in batches too (`STATUS_BATCH_MAX` / `STATUS_BATCH_SECONDS`), and the customer sees the timeline and per-photo status update.
 
-Epson's upload endpoint accepts a single file per job (`File=1.jpg`), so a multi-photo order is sent as several jobs, one after another. Because each photo is its own job, Epson's printable-file limit no longer caps the order size.
+Epson's upload endpoint accepts a single file per job (`File=1.jpg`), so a multi-photo order is sent as several jobs, one after another. Because each photo is its own job, Epson's printable-file limit no longer caps the order size. Each photo records when it was sent to the printer, and the order page shows that elapsed time next to any photo still marked `printing`, so a slow job stands out from a stuck one.
 
 ## Automatic print queue (cron)
 
@@ -97,6 +97,7 @@ Each run:
 
 - sends pending photos from up to five `accepted` orders, oldest first, within the existing print batch/time limits;
 - checks the status of Epson jobs already `printing` and marks each order `completed` automatically as soon as its last photo finishes, with no admin click;
+- releases a **stuck print**: a photo the printer has left in `printing` for more than `PRINT_JOB_STUCK_MINUTES` (45 minutes) becomes `failed` with a message saying it was stuck, so the order shows the retry banner and the same photo can be sent again with **Print** or **Retry & queue**. This also stops a job that never reports back from blocking the status checks of newer photos. The clock starts when the photo is handed to Epson (`order_photos.print_started_at`, added automatically to existing databases) and the order page shows how many minutes a printing photo has been running. An admin who does not want to wait can press **Release** on a printing photo to do the same thing by hand, then **Print** it again once the printer is ready;
 - claims each photo with a MySQL named lock and re-checks its status after claiming, so two cron runs or a cron run and **Send now** cannot send the same photo at once;
 - leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
 
