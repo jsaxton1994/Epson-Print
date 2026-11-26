@@ -921,6 +921,26 @@ function send_photo_to_printer(
 
             return ['ok' => true, 'skipped' => false, 'error' => ''];
         } catch (EpsonException $e) {
+            // A connection that never opened, or a failure before the start
+            // command, cannot have printed anything, so the photo stays queued
+            // for the next run instead of being marked as a failed print.
+            $neverPrinted = in_array($e->curlErrno, [6, 7], true)
+                || in_array($epson->lastStage, ['settings', 'create', 'upload'], true);
+
+            if ($e->transport && $neverPrinted) {
+                db_update('order_photos', [
+                    'status'        => 'pending',
+                    'error_message' => null,
+                ], 'id = ?', [$photoId]);
+
+                return [
+                    'ok'        => false,
+                    'skipped'   => false,
+                    'transient' => true,
+                    'error'     => $photo['file_name'] . ': Epson was unreachable, so the photo stays queued for the next run.',
+                ];
+            }
+
             db_update('order_photos', [
                 'status'        => 'failed',
                 'error_message' => $e->getMessage(),

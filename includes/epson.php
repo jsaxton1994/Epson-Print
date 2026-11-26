@@ -18,7 +18,8 @@ final class EpsonException extends RuntimeException
         string $message,
         public readonly int $statusCode = 0,
         public readonly array $payload = [],
-        public readonly bool $transport = false
+        public readonly bool $transport = false,
+        public readonly int $curlErrno = 0
     ) {
         parent::__construct($message);
     }
@@ -26,6 +27,9 @@ final class EpsonException extends RuntimeException
 
 final class EpsonClient
 {
+    /** Last print step reached, so a transport failure can be judged safely. */
+    public string $lastStage = '';
+
     private array $config;
 
     public function __construct(array $config)
@@ -179,17 +183,24 @@ final class EpsonClient
             . '-P' . max(1, (int) ($photo['position'] ?? 1));
         $jobName = mb_substr($jobName !== '' ? $jobName : 'PrintFree-photo', 0, 64);
 
+        $this->lastStage = 'settings';
+        $settings        = $this->photoSettings($order);
+
+        $this->lastStage = 'create';
         $job = $this->api('POST', '/printing/jobs', [
             'jobName'       => $jobName,
             'printMode'     => 'photo',
-            'printSettings' => $this->photoSettings($order),
+            'printSettings' => $settings,
         ]);
 
         if (empty($job['jobId']) || empty($job['uploadUri'])) {
             throw new EpsonException('Epson did not return a print job. Please try again.', 0, $job);
         }
 
+        $this->lastStage = 'upload';
         $this->upload((string) $job['uploadUri'], $bytes, $extension);
+
+        $this->lastStage = 'start';
 
         try {
             $this->api(
@@ -437,7 +448,7 @@ final class EpsonClient
             }
         }
 
-        throw new EpsonException('Could not upload the photo to Epson: ' . $error, 0, [], true);
+        throw new EpsonException('Could not upload the photo to Epson: ' . $error, 0, [], true, $errno);
     }
 
     /**
@@ -559,7 +570,7 @@ final class EpsonClient
         }
 
         if ($raw === false || $error !== '') {
-            throw new EpsonException('Could not reach Epson Connect: ' . $error, 0, [], true);
+            throw new EpsonException('Could not reach Epson Connect: ' . $error, 0, [], true, $errno);
         }
 
         $payload = json_decode((string) $raw, true);
@@ -641,7 +652,8 @@ final class EpsonClient
                 'Could not reach Epson authorisation: ' . $error . ' (cURL ' . $errno . '; ' . $timings . ')',
                 0,
                 [],
-                true
+                true,
+                $errno
             );
         }
 

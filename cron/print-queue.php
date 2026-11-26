@@ -192,6 +192,13 @@ try {
             }
 
             if (!$result['ok']) {
+                if (!empty($result['transient'])) {
+                    // Nothing reached the printer: try again on the next run
+                    // rather than reporting a failure or a failed photo.
+                    $messages[] = $frontOrder['reference'] . ': ' . $result['error'];
+                    break;
+                }
+
                 $failedTotal++;
                 $errors[] = $frontOrder['reference'] . ': ' . $result['error'];
                 break;
