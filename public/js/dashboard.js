@@ -50,7 +50,7 @@
                     credentials: "same-origin",
                     cache: "no-store",
                     headers: { Accept: "application/json" },
-                    signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(20000) : undefined,
+                    signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(40000) : undefined,
                 });
 
                 if (!response.ok) throw new Error("HTTP " + response.status);

@@ -292,9 +292,37 @@ function queue_health(): array
  * instead of only "linked". Epson prints one photo per job, so the job being
  * watched is the photo with status "printing".
  *
+ * Cached for PRINT_STATUS_CACHE_SECONDS so repeated dashboard polls (and
+ * several admins) do not each wait on a slow Epson API call.
+ *
  * @return array<string,mixed>
  */
 function printer_live_status(?EpsonClient $epson = null): array
+{
+    $cached = json_decode((string) setting('printer_status_cache', ''), true);
+
+    if (is_array($cached) && isset($cached['checked_at'])
+        && strtotime((string) $cached['checked_at']) > time() - PRINT_STATUS_CACHE_SECONDS) {
+        $cached['cached'] = true;
+
+        return $cached;
+    }
+
+    $status = printer_live_status_now($epson);
+    $status['cached'] = false;
+
+    set_setting('printer_status_cache', json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status;
+}
+
+/**
+ * Uncached printer status: the live job on the printer, or a device check when
+ * nothing is printing. One Epson call per refresh.
+ *
+ * @return array<string,mixed>
+ */
+function printer_live_status_now(?EpsonClient $epson = null): array
 {
     $epson ??= EpsonClient::fromSettings();
 
@@ -330,17 +358,6 @@ function printer_live_status(?EpsonClient $epson = null): array
         ]);
     }
 
-    try {
-        $device = $epson->deviceInfo();
-        $status['connected'] = !empty($device['connected']);
-    } catch (EpsonException $e) {
-        return array_merge($status, [
-            'state'  => 'unreachable',
-            'label'  => 'Epson unreachable',
-            'detail' => $e->getMessage(),
-        ]);
-    }
-
     $photo = db_one(
         "SELECT p.id, p.order_id, p.position, p.epson_job_id, o.reference,
                 (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id) AS photo_total
@@ -354,6 +371,18 @@ function printer_live_status(?EpsonClient $epson = null): array
     );
 
     if ($photo === null) {
+        // Nothing on the printer: the device check is the only Epson call needed.
+        try {
+            $device = $epson->deviceInfo();
+            $status['connected'] = !empty($device['connected']);
+        } catch (EpsonException $e) {
+            return array_merge($status, [
+                'state'  => 'unreachable',
+                'label'  => 'Epson unreachable',
+                'detail' => $e->getMessage(),
+            ]);
+        }
+
         $waiting = (int) $status['queued_orders'];
 
         return array_merge($status, [

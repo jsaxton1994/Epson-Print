@@ -336,6 +336,8 @@ final class EpsonClient
             CURLOPT_POSTFIELDS     => $data,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: ' . $mime,
                 'Content-Length: ' . $size,
@@ -373,6 +375,8 @@ final class EpsonClient
             CURLOPT_CUSTOMREQUEST  => $method,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_HTTPHEADER     => $headers,
         ]);
 
@@ -447,6 +451,8 @@ final class EpsonClient
             CURLOPT_POSTFIELDS     => http_build_query($fields),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_HTTPHEADER     => [
                 'Authorization: Basic ' . base64_encode($this->config['client_id'] . ':' . $this->config['client_secret']),
                 'Content-Type: application/x-www-form-urlencoded',
