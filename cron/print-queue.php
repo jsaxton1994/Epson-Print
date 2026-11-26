@@ -147,7 +147,8 @@ try {
             }
 
             $printing = db_one(
-                "SELECT p.id, p.order_id, p.status, p.epson_job_id
+                "SELECT p.id, p.order_id, p.status, p.epson_job_id"
+                . (print_started_column_ready() ? ', p.print_started_at' : '') . "
                  FROM order_photos p
                  JOIN orders o ON o.id = p.order_id
                  WHERE p.status = 'printing'
@@ -222,9 +223,21 @@ try {
                     }
                 }
 
-                // The status call itself takes several seconds, so only wait what
-                // is left of the poll interval and start the next sheet sooner.
-                $wait = PRINT_POLL_SECONDS - (microtime(true) - $checkedAt);
+                // Poll quickly at the start of a sheet so a short job is noticed
+                // at once, then slow down: a High-quality photo takes minutes, and
+                // every check is a fresh connection Epson may drop.
+                $pollSeconds = PRINT_POLL_SECONDS;
+                $startedAt   = !empty($printing['print_started_at'])
+                    ? strtotime((string) $printing['print_started_at'])
+                    : false;
+
+                if ($startedAt !== false && time() - $startedAt > PRINT_POLL_FAST_SECONDS) {
+                    $pollSeconds = PRINT_POLL_SLOW_SECONDS;
+                }
+
+                // The status call itself takes seconds, so only wait what is left
+                // of the poll interval and start the next sheet sooner.
+                $wait = $pollSeconds - (microtime(true) - $checkedAt);
 
                 if ($wait > 0) {
                     usleep((int) round($wait * 1000000));
