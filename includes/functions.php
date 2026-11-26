@@ -935,7 +935,8 @@ function send_photo_to_printer(
             // A connection that never opened, or a failure before the start
             // command, cannot have printed anything, so the photo stays queued
             // for the next run instead of being marked as a failed print.
-            $neverPrinted = in_array($e->curlErrno, [6, 7], true)
+            $neverPrinted = !$e->connected
+                || in_array($e->curlErrno, [6, 7], true)
                 || in_array($epson->lastStage, ['settings', 'create', 'upload'], true);
 
             if ($e->transport && $neverPrinted) {

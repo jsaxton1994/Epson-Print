@@ -19,7 +19,8 @@ final class EpsonException extends RuntimeException
         public readonly int $statusCode = 0,
         public readonly array $payload = [],
         public readonly bool $transport = false,
-        public readonly int $curlErrno = 0
+        public readonly int $curlErrno = 0,
+        public readonly bool $connected = true
     ) {
         parent::__construct($message);
     }
@@ -389,9 +390,9 @@ final class EpsonClient
         $size = strlen($data);
         $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
 
-        $error  = '';
-        $status = 0;
-        [$pinKey, $resolve] = $this->hostPin($url);
+        $error     = '';
+        $status    = 0;
+        $connected = false;
 
         // Uploads are the slowest call and a one-off dropped connection should
         // not fail the photo, so retry a transport failure a couple of times.
@@ -412,32 +413,22 @@ final class EpsonClient
                 ],
             ];
 
-            if ($resolve !== []) {
-                $options[CURLOPT_RESOLVE] = $resolve;
-            }
-
             curl_setopt_array($ch, $options);
 
-            $body    = curl_exec($ch);
-            $error   = curl_error($ch);
-            $errno   = curl_errno($ch);
-            $timings = $this->requestTimings($ch);
-            $primary = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
-            $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $body      = curl_exec($ch);
+            $error     = curl_error($ch);
+            $errno     = curl_errno($ch);
+            $timings   = $this->requestTimings($ch);
+            $connected = $connected || (float) curl_getinfo($ch, CURLINFO_PRETRANSFER_TIME) > 0;
+            $status    = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
 
             if ($body !== false && $error === '' && $status < 400) {
-                $this->rememberHost($pinKey, $primary);
-
                 return;
             }
 
             if ($status >= 400) {
                 throw new EpsonException('Epson rejected the photo upload (HTTP ' . $status . ').', $status);
-            }
-
-            if ($resolve !== [] && $pinKey !== '') {
-                set_setting($pinKey, '');
             }
 
             $error = ($error !== '' ? $error : 'no response from Epson')
@@ -448,38 +439,7 @@ final class EpsonClient
             }
         }
 
-        throw new EpsonException('Could not upload the photo to Epson: ' . $error, 0, [], true, $errno);
-    }
-
-    /**
-     * Cached IPv4 answer for an Epson host, so a slow DNS lookup cannot stall a
-     * request. Entries expire after six hours.
-     *
-     * @return array{0:string,1:list<string>} [storage key, CURLOPT_RESOLVE list]
-     */
-    private function hostPin(string $url): array
-    {
-        $host = (string) parse_url($url, PHP_URL_HOST);
-
-        if ($host === '') {
-            return ['', []];
-        }
-
-        $key    = 'epson_host_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($host));
-        $cached = json_decode((string) setting($key, ''), true);
-
-        if (!is_array($cached) || empty($cached['ip']) || time() - (int) ($cached['at'] ?? 0) >= 21600) {
-            return [$key, []];
-        }
-
-        return [$key, [$host . ':443:' . $cached['ip']]];
-    }
-
-    private function rememberHost(string $key, string $ip): void
-    {
-        if ($key !== '' && $ip !== '') {
-            set_setting($key, json_encode(['ip' => $ip, 'at' => time()]));
-        }
+        throw new EpsonException('Could not upload the photo to Epson: ' . $error, 0, [], true, $errno, $connected);
     }
 
     /**
@@ -515,10 +475,10 @@ final class EpsonClient
         $timeout  = $timeout > 0 ? $timeout : EPSON_TIMEOUT;
         $attempts = max(1, $attempts);
         $url      = EPSON_API_URL . $path;
-        [$pinKey, $resolve] = $this->hostPin($url);
         $error    = '';
         $raw      = false;
         $status   = 0;
+        $connected = false;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $ch = curl_init($url);
@@ -532,33 +492,22 @@ final class EpsonClient
                 CURLOPT_HTTPHEADER     => $headers,
             ];
 
-            if ($resolve !== []) {
-                $options[CURLOPT_RESOLVE] = $resolve;
-            }
-
             curl_setopt_array($ch, $options);
 
             if ($body !== null) {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
             }
 
-            $raw     = curl_exec($ch);
-            $error   = curl_error($ch);
-            $errno   = curl_errno($ch);
-            $timings = $this->requestTimings($ch);
-            $primary = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
-            $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $raw      = curl_exec($ch);
+            $error    = curl_error($ch);
+            $errno    = curl_errno($ch);
+            $timings  = $this->requestTimings($ch);
+            $connected = $connected || (float) curl_getinfo($ch, CURLINFO_PRETRANSFER_TIME) > 0;
+            $status   = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
 
             if ($raw !== false && $error === '') {
-                $this->rememberHost($pinKey, $primary);
                 break;
-            }
-
-            // A pinned address that stops answering is dropped, so the retry
-            // resolves the host again instead of failing against a dead IP.
-            if ($resolve !== [] && $pinKey !== '') {
-                set_setting($pinKey, '');
             }
 
             $error = ($error !== '' ? $error : 'no response from Epson')
@@ -570,7 +519,7 @@ final class EpsonClient
         }
 
         if ($raw === false || $error !== '') {
-            throw new EpsonException('Could not reach Epson Connect: ' . $error, 0, [], true, $errno);
+            throw new EpsonException('Could not reach Epson Connect: ' . $error, 0, [], true, $errno, $connected);
         }
 
         $payload = json_decode((string) $raw, true);
