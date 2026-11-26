@@ -179,7 +179,10 @@ if (is_post()) {
             flash('success', 'One photo sent to the printer. Press Print again once it has finished so the sheets stay in order.');
         }
         if ($skipped > 0) {
-            flash('info', $skipped . ' photo' . ($skipped === 1 ? ' was' : 's were') . ' already being sent by another process and skipped.');
+            // A pause is the most common reason: say why it was not sent.
+            flash('info', $result['error'] !== ''
+                ? $result['error']
+                : $skipped . ' photo' . ($skipped === 1 ? ' was' : 's were') . ' already being sent by another process and skipped.');
         }
         if ($errors !== []) {
             flash('error', 'Could not send ' . $failed . ' photo' . ($failed === 1 ? '' : 's') . '. ' . implode(' ', array_slice($errors, 0, 2)));
