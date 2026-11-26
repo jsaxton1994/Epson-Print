@@ -67,9 +67,10 @@ try {
         // job to finish before sending the next photo of the same order. A
         // second order is not touched until the first has no photos left, so
         // prints can no longer arrive from different orders mixed together.
-        $sentTotal    = 0;
-        $failedTotal  = 0;
-        $skippedTotal = 0;
+        $sentTotal         = 0;
+        $failedTotal       = 0;
+        $skippedTotal      = 0;
+        $transportFailures = 0;
         $frontRef     = '';
         $frontId      = 0;
 
@@ -132,11 +133,15 @@ try {
                     }
 
                     // A dropped connection is not a print failure: the sheet is
-                    // still printing, so keep the run alive and try again.
+                    // still printing, so keep the run alive and try again, but
+                    // back off so a throttling Epson endpoint is not hammered.
+                    $transportFailures++;
                     $transportNote ??= 'Epson did not answer a status check; retrying.';
-                    usleep(PRINT_POLL_SECONDS * 1000000);
+                    usleep(min(30, PRINT_POLL_SECONDS << min(3, $transportFailures)) * 1000000);
                     continue;
                 }
+
+                $transportFailures = 0;
 
                 if ($result['status'] !== 'printing') {
                     db_update('order_photos', [
