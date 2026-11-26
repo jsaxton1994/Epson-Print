@@ -212,7 +212,11 @@ if ($uploadedNow > 0): ?>
                                 <?php endif; ?>
                             </p>
 
-                            <p class="help" data-upload-progress hidden aria-live="polite"></p>
+                            <div class="upload-status" data-upload-status hidden>
+                                <div class="upload-bar"><span data-upload-bar></span></div>
+                                <p class="help" data-upload-progress aria-live="polite"></p>
+                                <ol class="upload-list" data-upload-list></ol>
+                            </div>
 
                             <button class="btn btn-primary" type="submit"><?= icon('plus') ?> Add photos</button>
                         </form>

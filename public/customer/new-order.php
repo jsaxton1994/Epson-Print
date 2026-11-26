@@ -301,7 +301,11 @@ app_start(
 
                 <div class="free-callout"><?= icon('sparkles') ?> Total cost: £0.00 — always free</div>
 
-                <p class="help" data-upload-progress hidden aria-live="polite"></p>
+                <div class="upload-status" data-upload-status hidden>
+                    <div class="upload-bar"><span data-upload-bar></span></div>
+                    <p class="help" data-upload-progress aria-live="polite"></p>
+                    <ol class="upload-list" data-upload-list></ol>
+                </div>
 
                 <button class="btn btn-primary btn-lg btn-block mt-3" type="submit" <?= $accepting ? '' : 'disabled' ?>>
                     <?= icon('printer') ?> Send photos to the printer

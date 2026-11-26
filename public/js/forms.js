@@ -387,6 +387,9 @@
         const submit = form.querySelector('[type="submit"]');
         const progress = form.querySelector("[data-upload-progress]");
         const zone = form.querySelector("[data-dropzone]");
+        const statusPanel = form.querySelector("[data-upload-status]");
+        const statusList = form.querySelector("[data-upload-list]");
+        const statusBar = form.querySelector("[data-upload-bar]");
         if (!input || !submit) return;
 
         const batchSize = Math.max(1, Number(form.dataset.batchSize) || 10);
@@ -403,6 +406,78 @@
             progress.style.color = isError ? "#b42318" : "";
         };
 
+        const nextFrame = () => new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                resolve();
+            };
+            // Paint the status row, but never stall the upload when the tab is
+            // in the background and animation frames are throttled.
+            window.requestAnimationFrame(finish);
+            window.setTimeout(finish, 50);
+        });
+
+        const rows = [];
+
+        const showRows = (files, alreadyUploaded) => {
+            rows.length = 0;
+            if (!statusList) return;
+
+            statusList.innerHTML = "";
+            files.forEach((file, index) => {
+                const item = document.createElement("li");
+                const name = document.createElement("span");
+                name.className = "upload-name";
+                name.textContent = `${index + 1}. ${file.name}`;
+
+                const state = document.createElement("span");
+                state.className = "upload-state";
+                state.textContent = index < alreadyUploaded ? "Added" : "Waiting";
+                if (index < alreadyUploaded) item.className = "is-done";
+
+                item.append(name, state);
+                statusList.appendChild(item);
+                rows.push(state);
+            });
+
+            if (statusPanel) statusPanel.hidden = false;
+        };
+
+        const setRowState = (index, className, text) => {
+            const state = rows[index];
+            if (!state) return;
+            state.textContent = text;
+            state.parentElement.className = className;
+        };
+
+        const setBar = (fraction) => {
+            if (!statusBar) return;
+            const percent = Math.max(0, Math.min(1, fraction || 0)) * 100;
+            statusBar.style.width = `${percent}%`;
+        };
+
+        const postChunk = (url, body, onProgress) => new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", url, true);
+            xhr.withCredentials = true;
+            xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+            xhr.upload.addEventListener("progress", (event) => {
+                if (event.lengthComputable && event.total > 0) {
+                    onProgress(event.loaded / event.total);
+                }
+            });
+
+            xhr.addEventListener("load", () => {
+                resolve({ status: xhr.status, text: xhr.responseText || "" });
+            });
+            xhr.addEventListener("error", () => reject(new Error("The upload could not reach the server. Check your connection and try again.")));
+            xhr.addEventListener("abort", () => reject(new Error("The upload was cancelled.")));
+            xhr.send(body);
+        });
+
         form.addEventListener("submit", async (event) => {
             if (form.dataset.uploading === "1") {
                 event.preventDefault();
@@ -416,8 +491,15 @@
             form.dataset.uploading = "1";
             submit.disabled = true;
             submit.textContent = "Uploading…";
+            form.setAttribute("aria-busy", "true");
 
             let uploaded = Number(form.dataset.uploaded) || 0;
+
+            // Every selected photo gets its own status row, so the whole
+            // selection is visible from the first request instead of the page
+            // looking frozen until the last batch lands.
+            showRows(files, uploaded);
+            setBar(uploaded / files.length);
             let endpoint = form.action;
             let orderId = form.dataset.orderId || "";
             let orderUrl = form.dataset.orderUrl || window.location.pathname;
@@ -428,45 +510,68 @@
                 const remaining = files.slice(uploaded);
                 const prepared = [];
                 for (let index = 0; index < remaining.length; index++) {
-                    if (isHeicFile(remaining[index]) || isTiffFile(remaining[index])) {
+                    const rowIndex = uploaded + index;
+                    const file = remaining[index];
+                    const converting = isHeicFile(file) || isTiffFile(file);
+
+                    if (converting) {
+                        setRowState(rowIndex, "is-active", "Preparing…");
                         setProgress(`Preparing photo ${index + 1} of ${remaining.length}…`);
+                        // Let the browser paint the row before the (blocking)
+                        // canvas conversion of a HEIC/TIFF photo starts.
+                        await nextFrame();
                     }
-                    prepared.push(await prepareForUpload(remaining[index], heicDecoder, tiffDecoder));
+
+                    prepared.push(await prepareForUpload(file, heicDecoder, tiffDecoder));
+
+                    if (converting) setRowState(rowIndex, "is-ready", "Ready");
+                    if (converting) await nextFrame();
                 }
 
                 const chunks = chunkFiles(prepared, batchSize, maxTotalBytes);
 
                 for (const chunk of chunks) {
-                    setProgress(`Uploading photos ${uploaded + 1}–${uploaded + chunk.length} of ${files.length}…`);
+                    const chunkStart = uploaded;
+                    const label = `photos ${chunkStart + 1}–${chunkStart + chunk.length} of ${files.length}`;
+                    setProgress(`Uploading ${label}…`);
+
+                    for (let index = 0; index < chunk.length; index++) {
+                        setRowState(chunkStart + index, "is-active", "Uploading…");
+                    }
+                    await nextFrame();
 
                     const body = new FormData(form);
                     body.delete("photos[]");
                     body.set("ajax", "1");
                     chunk.forEach((file) => body.append("photos[]", file));
 
-                    const response = await fetch(endpoint, {
-                        method: "POST",
-                        body,
-                        credentials: "same-origin",
-                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    const response = await postChunk(endpoint, body, (fraction) => {
+                        const done = (chunkStart + fraction * chunk.length) / files.length;
+                        setBar(done);
+                        setProgress(`Uploading ${label} — ${Math.round(done * 100)}%`);
                     });
 
                     let data = null;
                     try {
-                        data = await response.json();
+                        data = JSON.parse(response.text);
                     } catch (error) {
                         data = null;
                     }
 
-                    if (!response.ok || !data || !data.ok) {
+                    if (response.status < 200 || response.status >= 300 || !data || !data.ok) {
                         const fallback = response.status === 419
                             ? "This form expired. Refresh the page and try again."
                             : `Upload failed (HTTP ${response.status}).`;
                         throw new Error(data?.error || fallback);
                     }
 
+                    for (let index = 0; index < chunk.length; index++) {
+                        setRowState(chunkStart + index, "is-done", "Added");
+                    }
+
                     uploaded += chunk.length;
                     form.dataset.uploaded = String(uploaded);
+                    setBar(uploaded / files.length);
 
                     if (!orderId && data.order_id) {
                         orderId = String(data.order_id);
@@ -481,8 +586,18 @@
                 window.location.href = `${orderUrl}${separator}uploaded=${uploaded}`;
             } catch (error) {
                 form.dataset.uploading = "0";
+                form.removeAttribute("aria-busy");
                 submit.disabled = false;
                 submit.innerHTML = originalLabel;
+
+                if (statusList) {
+                    statusList.querySelectorAll("li.is-active").forEach((item) => {
+                        item.className = "is-error";
+                        const state = item.querySelector(".upload-state");
+                        if (state) state.textContent = "Not added";
+                    });
+                }
+
                 const already = uploaded > 0
                     ? ` ${uploaded} photo${uploaded === 1 ? "" : "s"} already added — press the button again to continue with the rest.`
                     : "";

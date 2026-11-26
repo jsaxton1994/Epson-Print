@@ -57,6 +57,8 @@ An order is a print header (customer, size, finish, colour, quality, notes) with
 
 While an order is still `pending`, the customer can add more photos from the order page. The endpoint checks ownership, CSRF, the order status, the photo count and the order's storage budget, inserts each batch one photo at a time, and rolls that batch back if any file fails. The browser remembers how many photos were already added, so a failed chunk can be retried without duplicating earlier ones.
 
+While a selection uploads, the page shows a progress bar and a live row per photo (**Waiting**, **Preparing…** for HEIC/TIFF, **Uploading…**, **Added**, or **Not added**) so the whole selection is visible from the first request instead of appearing to hang until the last batch finishes. Uploads go through `XMLHttpRequest` to report byte progress, and HEIC/TIFF conversions yield to the browser between photos so the page keeps painting.
+
 ```
 orders        reference, user_id, paper_size, borderless, color_mode,
               print_quality, notes, admin_note, status, error_message, …
