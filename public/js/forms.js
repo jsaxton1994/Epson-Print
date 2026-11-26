@@ -115,6 +115,10 @@
         const maxFiles = multi ? (Number(zone.dataset.maxFiles) || 10) : 1;
         const batchSize = Math.max(1, Number(zone.dataset.batchSize) || 10);
         let previewToken = 0;
+        // Set when a selection is larger than this dropzone allows: the extra
+        // files stay in the input but are ignored, so the FileList never has to
+        // be rebuilt (which can freeze a phone).
+        let selectionLimit = 0;
 
         if (!input) return;
 
@@ -155,7 +159,10 @@
             }
         };
 
-        const selected = () => Array.from(input.files || []);
+        const selected = () => {
+            const all = Array.from(input.files || []);
+            return selectionLimit > 0 ? all.slice(0, selectionLimit) : all;
+        };
 
         const isPhoto = (file) => file.type.startsWith("image/")
             || /\.(jpe?g|jfif|png|webp|gif|bmp|avif|tiff?|heics?|heif|tga|ico)$/i.test(file.name);
@@ -216,6 +223,7 @@
 
             if (list) {
                 list.innerHTML = "";
+                pickLog(`list: showing ${Math.min(files.length, 40)} of ${files.length} name${files.length === 1 ? "" : "s"}`);
                 files.slice(0, 40).forEach((file, index) => {
                     const row = document.createElement("span");
                     row.textContent = `${index + 1}. ${file.name} · ${humanSize(file.size)}`;
@@ -261,6 +269,8 @@
         const accept = (files, append = false) => {
             const incoming = Array.from(files || []);
 
+            if (!append) selectionLimit = 0;
+
             if (incoming.length === 0) {
                 render();
                 return;
@@ -280,6 +290,8 @@
             if (unique.length > maxFiles) {
                 chosen = unique.slice(0, maxFiles);
                 trimmed = true;
+                selectionLimit = chosen.length;
+                pickLog(`selection: using the first ${chosen.length} of ${unique.length} files`);
                 window.alert(`Only ${maxFiles} photos can be added here. The first ${maxFiles} are selected.`);
             }
 
@@ -298,28 +310,35 @@
                 + (previewsEnabled ? "" : " · preview skipped (phone)")
                 + (chosen.some(isHeic) ? " · HEIC not previewed" : ""));
 
-            // Only rewrite the input when the picker's selection actually
-            // changed. Re-assigning input.files inside a change handler can
-            // wedge the iOS picker.
-            const current = Array.from(input.files || []);
-            const unchanged = !append && !trimmed
-                && current.length === chosen.length
-                && chosen.every((file, index) => current[index] === file);
+            // Rebuilding a FileList with DataTransfer copies every file, and on
+            // iOS Safari with a large selection that is where the page stops
+            // responding. It is only needed for a drop that adds files to an
+            // existing selection; the picker already leaves the input holding
+            // exactly the files it returned.
+            if (append) {
+                pickLog("selection: syncing the file input…");
 
-            if (!unchanged) {
                 try {
                     const transfer = new DataTransfer();
                     chosen.forEach((file) => transfer.items.add(file));
                     input.files = transfer.files;
+                    pickLog("selection: file input synced");
                 } catch (error) {
                     if (!multi) {
                         input.value = "";
                     }
+                    pickLog("selection: kept the picker's own file list");
                     /* Older browsers keep their own file selection. */
                 }
             }
 
+            if (formEl) {
+                formEl.dataset.selectedLimit = selectionLimit > 0 ? String(selectionLimit) : "";
+            }
+
+            pickLog("selection: drawing the file list…");
             render();
+            pickLog("selection: ready — tap Add photos");
         };
 
         input.addEventListener("click", () => pickLog("picker opened"));
@@ -749,7 +768,10 @@
                 return;
             }
 
-            const files = Array.from(input.files || []);
+            const pickedFiles = Array.from(input.files || []);
+            const limit = Number(form.dataset.selectedLimit) || 0;
+            const files = limit > 0 ? pickedFiles.slice(0, limit) : pickedFiles;
+
             if (files.length === 0) {
                 pickLog("upload: pressed with no files selected");
                 return;
