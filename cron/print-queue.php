@@ -177,6 +177,10 @@ try {
 
             $sentTotal++;
 
+            // Mark the order as printing straight away (not only when a photo
+            // finishes) so the dashboard reflects the active order.
+            sync_order_status($frontId, 'Cron');
+
             // Let the printer pick the job up before the first status check.
             sleep(3);
         }

@@ -13,7 +13,11 @@ $epson = EpsonClient::fromSettings();
 $counts = db_one(
     "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
             COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
-            COALESCE(SUM(CASE WHEN status = 'printing' THEN 1 ELSE 0 END), 0) AS printing,
+            COALESCE((
+                SELECT COUNT(DISTINCT o.id) FROM orders o
+                WHERE o.status = 'printing'
+                   OR EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'printing')
+            ), 0) AS printing,
             COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
             COUNT(*) AS total
      FROM orders"
@@ -44,11 +48,16 @@ $photoSelect = "
     (SELECT p.id FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_id,
     (SELECT p.file_name FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_name";
 
+// Same order the worker uses: the one accepted longest ago prints first.
+$queueOrder = accepted_at_column_ready()
+    ? 'COALESCE(o.accepted_at, o.created_at) ASC, o.id ASC'
+    : 'o.created_at ASC, o.id ASC';
+
 $queue = db_all(
     "SELECT o.*, u.name AS customer, {$photoSelect}
      FROM orders o JOIN users u ON u.id = o.user_id
      WHERE o.status IN ('pending', 'accepted', 'printing', 'failed')
-     ORDER BY o.status = 'printing' DESC, o.status = 'accepted' DESC, o.id ASC
+     ORDER BY o.status = 'printing' DESC, " . $queueOrder . "
      LIMIT 6"
 );
 

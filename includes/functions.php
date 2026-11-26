@@ -1456,12 +1456,16 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     } elseif ($failed > 0) {
         $status  = 'failed';
         $message = $failed . ' of ' . $total . ' photos could not be printed.';
+    } elseif ($sent > 0) {
+        // As soon as one sheet has been handed over the order is printing, even
+        // while the rest of it is still queued. This is what the dashboard's
+        // "Printing now" count reads.
+        $status  = 'printing';
+        $message = $sent . ' of ' . $total . ' photos sent to the printer'
+            . ($pending > 0 ? '; ' . $pending . ' still queued.' : '.');
     } elseif ($order['status'] === 'accepted' && $pending > 0) {
         $status  = 'accepted';
         $message = 'Waiting to print: ' . $pending . ' of ' . $total . ' photos still in the automatic queue.';
-    } elseif ($sent > 0) {
-        $status  = 'printing';
-        $message = $sent . ' of ' . $total . ' photos sent to the printer.';
     } else {
         $status  = 'pending';
         $message = 'Order waiting in the queue.';
