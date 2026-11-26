@@ -61,7 +61,7 @@ While a selection uploads, the page shows a progress bar and a live row per phot
 
 Each batch is prepared and sent as it is reached rather than converting the whole selection first, and on the order page every saved batch is inserted into the gallery, the **Photo details** table, the photo count and the storage figure straight away (the JSON response carries the new rows). So the order visibly fills up while later photos are still uploading.
 
-Photo previews are skipped entirely on phones and for HEIC/HEIF files, where decoding the picker's originals can stall iOS Safari. Instead, the pages show a small **step readout** under the photo box (`data-pick-log`) recording the script version, when the picker opens and closes, how many files it returned, whether previews were skipped, each HEIC conversion, each upload batch, and any error — so a stuck selection can be pinpointed from a screenshot.
+Photo previews are skipped entirely on phones and for HEIC/HEIF files, where decoding the picker's originals can stall iOS Safari. On phones (and on any device with `?debug=1` or `?upload_debug=1` added to the URL) the photo box also shows a **step readout** recording the script version, when the picker opens and closes, how many files it returned, whether previews were skipped, each HEIC conversion, each upload batch, and any error, with a **Copy log** button for sending the trace. Desktop visitors without the flag never see it, but every step is still written to the browser console.
 
 ```
 orders        reference, user_id, paper_size, borderless, color_mode,

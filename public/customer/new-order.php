@@ -177,7 +177,13 @@ app_start(
                     <span class="dropzone-file" data-file-name></span>
                 </label>
 
-                <div class="pick-log" data-pick-log hidden aria-live="polite"></div>
+                <div class="pick-log-panel" data-pick-log-panel hidden>
+                    <div class="pick-log-head">
+                        <span>Upload steps</span>
+                        <button type="button" class="btn btn-ghost btn-sm" data-pick-copy>Copy log</button>
+                    </div>
+                    <div class="pick-log" data-pick-log aria-live="polite"></div>
+                </div>
 
                 <p class="help">
                     Select all the photos you need — up to <?= (int) MAX_PHOTOS_PER_ORDER ?>. A large selection is uploaded

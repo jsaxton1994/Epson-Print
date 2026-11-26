@@ -17,26 +17,77 @@
     };
 
     /* Upload step readout ------------------------------------------------ */
+    const isPhoneDevice = () => Boolean(navigator.userAgentData?.mobile)
+        || /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
+        || (window.matchMedia("(max-width: 820px)").matches && window.matchMedia("(pointer: coarse)").matches);
+
+    // The readout is for phones (where the picker can stall) and for anyone who
+    // adds ?debug=1 (or ?upload_debug=1) to the page. Desktop customers never
+    // see a debug box; steps still go to the console either way.
+    const showReadout = isPhoneDevice()
+        || /(?:^|[?&])(?:debug|upload_debug)=1(?:&|$)/.test(window.location.search);
+
     const pickLog = (message) => {
         const stamp = new Date().toLocaleTimeString();
 
-        document.querySelectorAll("[data-pick-log]").forEach((element) => {
-            element.hidden = false;
-            const line = document.createElement("div");
-            line.textContent = `${stamp} · ${message}`;
-            element.appendChild(line);
-            while (element.children.length > 14) {
-                element.removeChild(element.firstChild);
-            }
-            element.scrollTop = element.scrollHeight;
-        });
+        if (showReadout) {
+            document.querySelectorAll("[data-pick-log-panel]").forEach((panel) => {
+                panel.hidden = false;
+                const element = panel.querySelector("[data-pick-log]");
+                if (!element) return;
+
+                const line = document.createElement("div");
+                line.textContent = `${stamp} · ${message}`;
+                element.appendChild(line);
+                while (element.children.length > 14) {
+                    element.removeChild(element.firstChild);
+                }
+                element.scrollTop = element.scrollHeight;
+            });
+        }
 
         try {
-            console.log(`[upload] ${message}`);
+            console.log(`[upload] ${stamp} · ${message}`);
         } catch (error) {
             /* Console may be unavailable. */
         }
     };
+
+    document.querySelectorAll("[data-pick-copy]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const panel = button.closest("[data-pick-log-panel]");
+            const log = panel?.querySelector("[data-pick-log]");
+            if (!log) return;
+
+            const text = Array.from(log.children).map((line) => line.textContent).join("\n");
+            let copied = false;
+
+            try {
+                await navigator.clipboard.writeText(text);
+                copied = true;
+            } catch (error) {
+                const helper = document.createElement("textarea");
+                helper.value = text;
+                helper.setAttribute("readonly", "");
+                helper.style.position = "fixed";
+                helper.style.opacity = "0";
+                document.body.appendChild(helper);
+                helper.select();
+                try {
+                    copied = document.execCommand("copy");
+                } catch (fallbackError) {
+                    copied = false;
+                }
+                helper.remove();
+            }
+
+            const original = button.textContent;
+            button.textContent = copied ? "Copied" : "Copy failed";
+            window.setTimeout(() => {
+                button.textContent = original;
+            }, 1600);
+        });
+    });
 
     /* Password visibility ------------------------------------------------- */
     document.querySelectorAll("[data-toggle-password]").forEach((button) => {
@@ -69,10 +120,7 @@
 
         const formEl = zone.closest("form");
         const appVersion = formEl?.dataset.appVersion || "";
-        const isPhone = Boolean(navigator.userAgentData?.mobile)
-            || /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
-            || (window.matchMedia("(max-width: 820px)").matches && window.matchMedia("(pointer: coarse)").matches);
-        const previewsEnabled = !isPhone;
+        const previewsEnabled = !isPhoneDevice();
         const isHeic = (file) => /\.(heic|heif)$/i.test(file.name)
             || ["image/heic", "image/heif"].includes(String(file.type).toLowerCase());
 
