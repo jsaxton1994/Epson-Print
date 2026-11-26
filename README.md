@@ -2,7 +2,7 @@
 
 A completely free **photo** printing service for an **Epson ET-2926**, built in plain PHP with a database, and powered by the **Epson Connect API v2**.
 
-Customers build orders of up to **100 photos** — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches (or mark them printed manually), and manage customers. No payments, allowances or credits anywhere.
+Customers build orders of up to **100 photos** — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. They can select the whole album at once; the browser uploads it **10 photos at a time** so no request is huge. Then they choose a print size (4 × 6, 5 × 7 or A4), borderless or white border, colour and quality. Every photo prints once — there is no copies setting. Administrators see the queue, send photos to the printer in batches, and manage customers. No payments, allowances or credits anywhere.
 
 Demo accounts:
 

@@ -66,7 +66,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <?= icon('alert') ?>
         <div>
             <strong>Epson Connect is not set up yet</strong>
-            <p>Add your Client ID, Client Secret and API Key, then link the ET-2926. Until then you can still manage photo orders and mark them printed manually.</p>
+            <p>Add your Client ID, Client Secret and API Key, then link the ET-2926. Until then you can still review and manage photo orders; printing starts once the printer is linked.</p>
             <div class="banner-actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('gear') ?> Open settings</a>
             </div>

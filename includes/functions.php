@@ -1286,19 +1286,6 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     return $status;
 }
 
-/**
- * Mark every photo in an order as printed by hand.
- */
-function complete_order_photos(int $orderId, string $actor): void
-{
-    db_query(
-        "UPDATE order_photos SET status = 'completed', printed_at = ?, error_message = NULL WHERE order_id = ?",
-        [now(), $orderId]
-    );
-
-    update_order_status($orderId, 'completed', 'Marked as printed by ' . $actor . '.', $actor);
-}
-
 function generate_reference(): string
 {
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

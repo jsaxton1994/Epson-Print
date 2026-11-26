@@ -192,12 +192,6 @@ if (is_post()) {
         redirect($back);
     }
 
-    if ($action === 'complete') {
-        complete_order_photos($orderId, (string) $admin['name']);
-        flash('success', 'Every photo in this order is marked as printed.');
-        redirect($back);
-    }
-
     if ($action === 'cancel') {
         if ($order['status'] === 'completed') {
             flash('error', 'Printed orders cannot be cancelled.');
@@ -395,14 +389,6 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="refresh">
                             <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Check status</button>
-                        </form>
-                    <?php endif; ?>
-
-                    <?php if (in_array($order['status'], ['pending', 'accepted', 'printing', 'failed'], true)): ?>
-                        <form method="post" action="<?= e($back) ?>" data-confirm="Mark every photo in this order as printed? Do this only after the prints are out of the printer.">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="action" value="complete">
-                            <button class="btn btn-ghost btn-sm" type="submit"><?= icon('check') ?> Mark printed</button>
                         </form>
                     <?php endif; ?>
 
