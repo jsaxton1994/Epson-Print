@@ -119,6 +119,8 @@ try {
                     break;
                 }
 
+                $checkedAt = microtime(true);
+
                 try {
                     $result = $epson->interpretJobStatus(
                         $epson->jobStatus((string) $printing['epson_job_id'])
@@ -142,7 +144,14 @@ try {
                     sync_order_status((int) $printing['order_id'], 'Cron');
                 }
 
-                usleep(PRINT_POLL_SECONDS * 1000000);
+                // The status call itself takes several seconds, so only wait what
+                // is left of the poll interval and start the next sheet sooner.
+                $wait = PRINT_POLL_SECONDS - (microtime(true) - $checkedAt);
+
+                if ($wait > 0) {
+                    usleep((int) round($wait * 1000000));
+                }
+
                 continue;
             }
 
@@ -181,8 +190,8 @@ try {
             // finishes) so the dashboard reflects the active order.
             sync_order_status($frontId, 'Cron');
 
-            // Let the printer pick the job up before the first status check.
-            sleep(2);
+            // The next pass checks the job straight away and starts the next
+            // photo as soon as the printer reports this one finished.
         }
 
         if ($sentTotal > 0) {
