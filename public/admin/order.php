@@ -583,7 +583,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <div>
                         <strong>Print preview: <?= e($previewPhoto['file_name']) ?></strong>
                         <p>
-                            Exactly what the printer receives: padded to <?= e(paper_size_label($order['paper_size'])) ?><?= (int) $order['borderless'] === 1 ? ' with a slim white margin, so the borderless trim cannot reach the photo' : ' with a white border' ?>.
+                            Exactly what the printer receives: <?= e(paper_size_label($order['paper_size'])) ?><?= (int) $order['borderless'] === 1 ? ' with a soft blurred fill around the photo, so the sheet is covered edge to edge and nothing is cut off' : ', with a white border' ?>.
                             <a class="print-preview-link" href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">Open full size <?= icon('arrow-right') ?></a>
                         </p>
                     </div>

@@ -1066,9 +1066,11 @@ function memory_limit_bytes(string $value): int
  * canvas of exactly the paper's shape (white where the photo is shorter) means
  * the whole photo fits on the sheet, portrait or landscape, whatever the paper.
  *
- * Borderless prints also get a slim white margin around the photo: the printer
- * trims a millimetre or two off every edge to reach the paper edge, and that
- * trim then lands in the margin instead of the picture.
+ * Borderless prints fill the spare canvas with a soft blurred enlargement of
+ * the same photo, so the sheet is covered edge to edge without cropping or
+ * stretching. A 2% margin around the photo is part of that fill: the printer
+ * trims a millimetre or two off every edge to reach the paper edge, and the
+ * trim lands on blurred background instead of the picture.
  *
  * Large photos are given the memory one decode needs; this only returns null
  * when the host refuses that memory or GD cannot decode the file, and the
@@ -1132,7 +1134,7 @@ function photo_print_canvas(array $photo, string $paperSize, bool $borderless = 
     $canvasHeight = max(1, (int) round($canvasHeight * $scale));
 
     // 2% of the short side is about the trim a borderless print takes off each
-    // edge, so the printer cuts the white margin and not the photo.
+    // edge, so the printer cuts the blurred fill and not the photo.
     $margin = $borderless ? max(2, (int) round(min($canvasWidth, $canvasHeight) * 0.02)) : 0;
 
     $innerWidth  = max(1, $canvasWidth - ($margin * 2));
@@ -1174,6 +1176,31 @@ function photo_print_canvas(array $photo, string $paperSize, bool $borderless = 
         }
 
         imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+
+        if ($borderless) {
+            // Fill the spare area with a soft, darkened enlargement of the photo
+            // itself, so the sheet is covered edge to edge, the whole photo is
+            // still visible, and nothing is stretched or cut off.
+            $cover        = max($canvasWidth / $width, $canvasHeight / $height);
+            $sourceWidth  = max(1, (int) round($canvasWidth / $cover));
+            $sourceHeight = max(1, (int) round($canvasHeight / $cover));
+            $sourceX      = max(0, (int) round(($width - $sourceWidth) / 2));
+            $sourceY      = max(0, (int) round(($height - $sourceHeight) / 2));
+
+            $blurWidth  = 48;
+            $blurHeight = max(1, (int) round($blurWidth * $canvasHeight / $canvasWidth));
+            $blur       = imagecreatetruecolor($blurWidth, $blurHeight);
+
+            if ($blur !== false) {
+                imagecopyresampled($blur, $image, 0, 0, $sourceX, $sourceY, $blurWidth, $blurHeight, $sourceWidth, $sourceHeight);
+                imagecopyresampled($canvas, $blur, 0, 0, 0, 0, $canvasWidth, $canvasHeight, $blurWidth, $blurHeight);
+                imagedestroy($blur);
+
+                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, -24);
+                imagefilter($canvas, IMG_FILTER_GAUSSIAN_BLUR);
+            }
+        }
+
         imagecopyresampled(
             $canvas,
             $image,
@@ -1188,7 +1215,7 @@ function photo_print_canvas(array $photo, string $paperSize, bool $borderless = 
         );
 
         ob_start();
-        $ok   = imagejpeg($canvas, null, 92);
+        $ok   = imagejpeg($canvas, null, 90);
         $jpeg = ob_get_clean();
 
         imagedestroy($canvas);
@@ -1626,7 +1653,7 @@ function photo_gd_to_jpeg(string $data, int $width, int $height): ?array
     imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
 
     ob_start();
-    $ok   = imagejpeg($canvas, null, 90);
+    $ok   = imagejpeg($canvas, null, 92);
     $jpeg = ob_get_clean();
 
     imagedestroy($canvas);
