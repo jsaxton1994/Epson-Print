@@ -14,8 +14,12 @@ declare(strict_types=1);
 
 final class EpsonException extends RuntimeException
 {
-    public function __construct(string $message, public readonly int $statusCode = 0, public readonly array $payload = [])
-    {
+    public function __construct(
+        string $message,
+        public readonly int $statusCode = 0,
+        public readonly array $payload = [],
+        public readonly bool $transport = false
+    ) {
         parent::__construct($message);
     }
 }
@@ -214,8 +218,9 @@ final class EpsonClient
 
     public function jobStatus(string $jobId): array
     {
-        // Status checks run in loops, so one attempt with a shorter timeout.
-        return $this->api('GET', '/printing/jobs/' . rawurlencode($jobId), null, 60, 1);
+        // Status checks run in loops: fail quickly and retry once so one stalled
+        // connection cannot hold the worker for a whole minute.
+        return $this->api('GET', '/printing/jobs/' . rawurlencode($jobId), null, 25, 2);
     }
 
     /**
@@ -375,12 +380,13 @@ final class EpsonClient
 
         $error  = '';
         $status = 0;
+        [$pinKey, $resolve] = $this->hostPin($url);
 
         // Uploads are the slowest call and a one-off dropped connection should
         // not fail the photo, so retry a transport failure a couple of times.
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             $ch = curl_init($url);
-            curl_setopt_array($ch, [
+            $options = [
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => $data,
                 CURLOPT_RETURNTRANSFER => true,
@@ -393,15 +399,25 @@ final class EpsonClient
                     'Content-Length: ' . $size,
                     'Expect:',
                 ],
-            ]);
+            ];
 
-            $body   = curl_exec($ch);
-            $error  = curl_error($ch);
-            $errno  = curl_errno($ch);
-            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            if ($resolve !== []) {
+                $options[CURLOPT_RESOLVE] = $resolve;
+            }
+
+            curl_setopt_array($ch, $options);
+
+            $body    = curl_exec($ch);
+            $error   = curl_error($ch);
+            $errno   = curl_errno($ch);
+            $timings = $this->requestTimings($ch);
+            $primary = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
+            $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
 
             if ($body !== false && $error === '' && $status < 400) {
+                $this->rememberHost($pinKey, $primary);
+
                 return;
             }
 
@@ -409,14 +425,68 @@ final class EpsonClient
                 throw new EpsonException('Epson rejected the photo upload (HTTP ' . $status . ').', $status);
             }
 
-            $error = $error !== '' ? $error . ' (cURL ' . $errno . ')' : 'no response from Epson';
+            if ($resolve !== [] && $pinKey !== '') {
+                set_setting($pinKey, '');
+            }
+
+            $error = ($error !== '' ? $error : 'no response from Epson')
+                . ' (cURL ' . $errno . '; ' . $timings . ')';
 
             if ($attempt < 2) {
                 sleep(2);
             }
         }
 
-        throw new EpsonException('Could not upload the photo to Epson: ' . $error);
+        throw new EpsonException('Could not upload the photo to Epson: ' . $error, 0, [], true);
+    }
+
+    /**
+     * Cached IPv4 answer for an Epson host, so a slow DNS lookup cannot stall a
+     * request. Entries expire after six hours.
+     *
+     * @return array{0:string,1:list<string>} [storage key, CURLOPT_RESOLVE list]
+     */
+    private function hostPin(string $url): array
+    {
+        $host = (string) parse_url($url, PHP_URL_HOST);
+
+        if ($host === '') {
+            return ['', []];
+        }
+
+        $key    = 'epson_host_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($host));
+        $cached = json_decode((string) setting($key, ''), true);
+
+        if (!is_array($cached) || empty($cached['ip']) || time() - (int) ($cached['at'] ?? 0) >= 21600) {
+            return [$key, []];
+        }
+
+        return [$key, [$host . ':443:' . $cached['ip']]];
+    }
+
+    private function rememberHost(string $key, string $ip): void
+    {
+        if ($key !== '' && $ip !== '') {
+            set_setting($key, json_encode(['ip' => $ip, 'at' => time()]));
+        }
+    }
+
+    /**
+     * Where a failed request spent its time: a stalled DNS lookup looks very
+     * different from a TLS handshake that never finished.
+     */
+    private function requestTimings(\CurlHandle $ch): string
+    {
+        $info = curl_getinfo($ch);
+
+        return sprintf(
+            'dns %.1fs, connect %.1fs, tls %.1fs, first byte %.1fs, total %.1fs',
+            (float) ($info['namelookup_time'] ?? 0),
+            (float) ($info['connect_time'] ?? 0),
+            (float) ($info['appconnect_time'] ?? 0),
+            (float) ($info['starttransfer_time'] ?? 0),
+            (float) ($info['total_time'] ?? 0)
+        );
     }
 
     private function api(string $method, string $path, ?array $body = null, int $timeout = 0, int $attempts = 2): array
@@ -433,13 +503,15 @@ final class EpsonClient
 
         $timeout  = $timeout > 0 ? $timeout : EPSON_TIMEOUT;
         $attempts = max(1, $attempts);
+        $url      = EPSON_API_URL . $path;
+        [$pinKey, $resolve] = $this->hostPin($url);
         $error    = '';
         $raw      = false;
         $status   = 0;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
-            $ch = curl_init(EPSON_API_URL . $path);
-            curl_setopt_array($ch, [
+            $ch = curl_init($url);
+            $options = [
                 CURLOPT_CUSTOMREQUEST  => $method,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => $timeout,
@@ -447,23 +519,39 @@ final class EpsonClient
                 CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_HTTPHEADER     => $headers,
-            ]);
+            ];
+
+            if ($resolve !== []) {
+                $options[CURLOPT_RESOLVE] = $resolve;
+            }
+
+            curl_setopt_array($ch, $options);
 
             if ($body !== null) {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
             }
 
-            $raw    = curl_exec($ch);
-            $error  = curl_error($ch);
-            $errno  = curl_errno($ch);
-            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $raw     = curl_exec($ch);
+            $error   = curl_error($ch);
+            $errno   = curl_errno($ch);
+            $timings = $this->requestTimings($ch);
+            $primary = (string) curl_getinfo($ch, CURLINFO_PRIMARY_IP);
+            $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
 
             if ($raw !== false && $error === '') {
+                $this->rememberHost($pinKey, $primary);
                 break;
             }
 
-            $error = $error !== '' ? $error . ' (cURL ' . $errno . ')' : 'no response from Epson';
+            // A pinned address that stops answering is dropped, so the retry
+            // resolves the host again instead of failing against a dead IP.
+            if ($resolve !== [] && $pinKey !== '') {
+                set_setting($pinKey, '');
+            }
+
+            $error = ($error !== '' ? $error : 'no response from Epson')
+                . ' (cURL ' . $errno . '; ' . $timings . ')';
 
             if ($attempt < $attempts) {
                 sleep($attempt * 2);
@@ -471,7 +559,7 @@ final class EpsonClient
         }
 
         if ($raw === false || $error !== '') {
-            throw new EpsonException('Could not reach Epson Connect: ' . $error);
+            throw new EpsonException('Could not reach Epson Connect: ' . $error, 0, [], true);
         }
 
         $payload = json_decode((string) $raw, true);
@@ -541,13 +629,20 @@ final class EpsonClient
             ],
         ]);
 
-        $raw    = curl_exec($ch);
-        $error  = curl_error($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $raw     = curl_exec($ch);
+        $error   = curl_error($ch);
+        $errno   = curl_errno($ch);
+        $timings = $this->requestTimings($ch);
+        $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
 
         if ($raw === false || $error !== '') {
-            throw new EpsonException('Could not reach Epson authorisation: ' . $error);
+            throw new EpsonException(
+                'Could not reach Epson authorisation: ' . $error . ' (cURL ' . $errno . '; ' . $timings . ')',
+                0,
+                [],
+                true
+            );
         }
 
         $payload = json_decode((string) $raw, true);

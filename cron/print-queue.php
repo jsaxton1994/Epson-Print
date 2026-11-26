@@ -126,8 +126,16 @@ try {
                         $epson->jobStatus((string) $printing['epson_job_id'])
                     );
                 } catch (EpsonException $e) {
-                    $errors[] = $e->getMessage();
-                    break;
+                    if (!$e->transport) {
+                        $errors[] = $e->getMessage();
+                        break;
+                    }
+
+                    // A dropped connection is not a print failure: the sheet is
+                    // still printing, so keep the run alive and try again.
+                    $transportNote ??= 'Epson did not answer a status check; retrying.';
+                    usleep(PRINT_POLL_SECONDS * 1000000);
+                    continue;
                 }
 
                 if ($result['status'] !== 'printing') {
@@ -245,8 +253,16 @@ try {
                     ], 'id = ?', [$photo['id']]);
                 }
             } catch (EpsonException $e) {
-                $errors[] = $e->getMessage();
+                if ($e->transport) {
+                    $transportNote ??= 'Epson did not answer a status check; retrying.';
+                } else {
+                    $errors[] = $e->getMessage();
+                }
             }
+        }
+
+        if (isset($transportNote)) {
+            $messages[] = $transportNote;
         }
 
         foreach (array_keys($touchedOrders) as $orderId) {
