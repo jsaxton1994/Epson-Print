@@ -125,6 +125,9 @@
         const formEl = zone.closest("form");
         const appVersion = formEl?.dataset.appVersion || "";
         const previewsEnabled = !isPhoneDevice();
+        // A phone handed 70 files at once struggles before our code even runs,
+        // so phones pick one batch at a time and add the next after it lands.
+        const pickLimit = previewsEnabled ? maxFiles : Math.min(maxFiles, batchSize);
         const isHeic = (file) => /\.(heic|heif)$/i.test(file.name)
             || ["image/heic", "image/heif"].includes(String(file.type).toLowerCase());
 
@@ -242,13 +245,13 @@
                 if (titleEl) titleEl.textContent = multi ? "Drop your photos here" : "Drop your photo here";
                 if (hintEl) {
                     hintEl.textContent = multi
-                        ? `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${maxFiles}; uploaded ${batchSize} at a time.`
+                        ? `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${pickLimit}; uploaded ${batchSize} at a time.`
                         : `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB`;
                 }
                 nameEls.forEach((element) => {
                     element.textContent = multi ? "" : "";
                 });
-                setSummary("photos", `0 of ${maxFiles}`);
+                setSummary("photos", `0 of ${pickLimit}`);
                 return;
             }
 
@@ -258,12 +261,12 @@
                 titleEl.textContent = files.length === 1 ? "Photo selected" : `${files.length} photos selected`;
             }
             if (hintEl) {
-                hintEl.textContent = `${files.length} of ${maxFiles} · ${humanSize(total)} total · uploads in ${batches} batch${batches === 1 ? "" : "es"}`;
+                hintEl.textContent = `${files.length} of ${pickLimit} · ${humanSize(total)} total · uploads in ${batches} batch${batches === 1 ? "" : "es"}`;
             }
             nameEls.forEach((element) => {
                 element.textContent = files.length === 1 ? files[0].name : `${files.length} photos selected`;
             });
-            setSummary("photos", `${files.length} of ${maxFiles}`);
+            setSummary("photos", `${files.length} of ${pickLimit}`);
         };
 
         const accept = (files, append = false) => {
@@ -287,12 +290,25 @@
 
             let chosen = unique;
             let trimmed = false;
-            if (unique.length > maxFiles) {
-                chosen = unique.slice(0, maxFiles);
+
+            if (unique.length > pickLimit) {
+                if (!previewsEnabled) {
+                    // Clearing the input releases the oversized FileList, which
+                    // is what leaves a phone unresponsive after a big pick.
+                    pickLog(`selection: ${unique.length} files is over the phone limit of ${pickLimit} — cleared`);
+                    input.value = "";
+                    selectionLimit = 0;
+                    if (formEl) formEl.dataset.selectedLimit = "";
+                    window.alert(`On a phone, choose up to ${pickLimit} photos at a time. Each batch is added to the order, then you can add the next ${pickLimit}.`);
+                    render();
+                    return;
+                }
+
+                chosen = unique.slice(0, pickLimit);
                 trimmed = true;
                 selectionLimit = chosen.length;
                 pickLog(`selection: using the first ${chosen.length} of ${unique.length} files`);
-                window.alert(`Only ${maxFiles} photos can be added here. The first ${maxFiles} are selected.`);
+                window.alert(`Only ${pickLimit} photos can be added here. The first ${pickLimit} are selected.`);
             }
 
             for (const file of chosen) {
@@ -761,6 +777,10 @@
             xhr.addEventListener("abort", () => reject(new Error("The upload was cancelled.")));
             xhr.send(body);
         });
+
+        // Proves whether the tap reached the page at all: if this line is
+        // missing after a freeze, the browser was still busy on the picker.
+        submit.addEventListener("click", () => pickLog("button: tapped"));
 
         form.addEventListener("submit", async (event) => {
             if (form.dataset.uploading === "1") {
