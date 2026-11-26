@@ -29,7 +29,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/epson.php';
 
-@set_time_limit(PRINT_BATCH_SECONDS + STATUS_BATCH_SECONDS + (2 * EPSON_TIMEOUT) + 10);
+@set_time_limit(PRINT_SEQUENTIAL_SECONDS + STATUS_BATCH_SECONDS + (3 * EPSON_TIMEOUT) + 20);
 
 $lock = db_val("SELECT GET_LOCK('printfree_print_queue', 0)");
 if ((int) $lock !== 1) {
@@ -60,112 +60,123 @@ try {
                 . ' waiting; the printer is not linked.';
         }
     } else {
-        $sendDeadline = microtime(true) + PRINT_BATCH_SECONDS;
+        $sendDeadline = microtime(true) + PRINT_SEQUENTIAL_SECONDS;
 
-        // Strictly one order at a time: only the oldest order that still has
-        // photos to print (pending) or on the printer (printing) is served.
-        // A newer order's photos are not submitted until every photo of the
-        // order ahead of it is completed or has failed.
-        $orders = db_all(
-            "SELECT o.*
-             FROM orders o
-             WHERE o.status IN ('accepted', 'printing')
-               AND EXISTS (
-                   SELECT 1 FROM order_photos p
-                   WHERE p.order_id = o.id AND p.status IN ('pending', 'printing')
-               )
-             ORDER BY o.id ASC
-             LIMIT 1"
-        );
-
-        if ($orders !== []) {
-            $frontOrder = $orders[0];
-
-            if ($frontOrder['status'] === 'printing') {
-                $waiting = (int) db_val(
-                    "SELECT COUNT(*) FROM orders o
-                     WHERE o.status = 'accepted'
-                       AND o.id <> ?
-                       AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')",
-                    [(int) $frontOrder['id']]
-                );
-
-                if ($waiting > 0) {
-                    $messages[] = $frontOrder['reference'] . ' is still printing; '
-                        . $waiting . ' other order' . ($waiting === 1 ? '' : 's')
-                        . ' held back until it finishes.';
-                }
-            }
-        }
-
+        // Strictly one order, one sheet at a time. The worker only sends a
+        // photo when nothing is already on the printer, then waits for that
+        // job to finish before sending the next photo of the same order. A
+        // second order is not touched until the first has no photos left, so
+        // prints can no longer arrive from different orders mixed together.
         $sentTotal    = 0;
         $failedTotal  = 0;
         $skippedTotal = 0;
+        $frontRef     = '';
+        $frontId      = 0;
 
-        foreach ($orders as $order) {
-            if (microtime(true) >= $sendDeadline) {
+        while (microtime(true) < $sendDeadline) {
+            $frontOrder = db_one(
+                "SELECT o.*
+                 FROM orders o
+                 WHERE o.status IN ('accepted', 'printing')
+                   AND EXISTS (
+                       SELECT 1 FROM order_photos p
+                       WHERE p.order_id = o.id AND p.status IN ('pending', 'printing')
+                   )
+                 ORDER BY o.id ASC
+                 LIMIT 1"
+            );
+
+            if ($frontOrder === null) {
                 break;
             }
 
-            $orderId = (int) $order['id'];
-            $pending = array_values(array_filter(
-                order_photos($orderId),
-                static fn (array $photo): bool => $photo['status'] === 'pending'
-            ));
+            $frontId  = (int) $frontOrder['id'];
+            $frontRef = (string) $frontOrder['reference'];
 
-            if ($pending === []) {
-                continue;
-            }
+            $printing = db_one(
+                "SELECT p.*
+                 FROM order_photos p
+                 JOIN orders o ON o.id = p.order_id
+                 WHERE p.status = 'printing'
+                   AND p.epson_job_id IS NOT NULL
+                   AND p.epson_job_id <> ''
+                   AND o.status <> 'cancelled'
+                 ORDER BY p.id ASC
+                 LIMIT 1"
+            );
 
-            $batch   = array_slice($pending, 0, PRINT_BATCH_MAX);
-            $sent    = 0;
-            $skipped = 0;
-
-            foreach ($batch as $index => $photo) {
-                if ($index > 0 && microtime(true) >= $sendDeadline) {
+            if ($printing !== null) {
+                // Something is on the printer. Only the front order may use it;
+                // a photo from another order (a manual send) must finish first.
+                if ((int) $printing['order_id'] !== $frontId) {
                     break;
                 }
 
-                $result = send_photo_to_printer($epson, $order, $photo, ['pending']);
-
-                if (!empty($result['skipped'])) {
-                    $skipped++;
-                    $skippedTotal++;
-                    continue;
-                }
-
-                if (!$result['ok']) {
-                    $failedTotal++;
-                    $errors[] = $order['reference'] . ': ' . $result['error'];
+                try {
+                    $result = $epson->interpretJobStatus(
+                        $epson->jobStatus((string) $printing['epson_job_id'])
+                    );
+                } catch (EpsonException $e) {
+                    $errors[] = $e->getMessage();
                     break;
                 }
 
-                $sent++;
-                $sentTotal++;
-            }
+                if ($result['status'] !== 'printing') {
+                    db_update('order_photos', [
+                        'status'        => $result['status'],
+                        'printed_at'    => $result['status'] === 'completed' ? now() : null,
+                        'error_message' => $result['status'] === 'failed' ? $result['detail'] : null,
+                    ], 'id = ?', [$printing['id']]);
 
-            if ($sent === 0) {
+                    if ($result['status'] === 'failed') {
+                        $failedTotal++;
+                    }
+
+                    sync_order_status((int) $printing['order_id'], 'Cron');
+                }
+
+                usleep(PRINT_POLL_SECONDS * 1000000);
                 continue;
             }
 
-            $remaining = max(0, count($pending) - $sent - $skipped);
-            $status    = sync_order_status($orderId, 'Cron');
+            // The printer is free: send the next photo of the front order.
+            $pending = db_one(
+                'SELECT ' . order_photo_columns() . '
+                 FROM order_photos
+                 WHERE order_id = ? AND status = \'pending\'
+                 ORDER BY position ASC, id ASC
+                 LIMIT 1',
+                [$frontId]
+            );
 
-            // sync_order_status keeps an accepted order accepted while photos
-            // are still waiting, so record the batch progress explicitly.
-            if ($remaining > 0 && $status === 'accepted') {
-                log_order_event(
-                    $orderId,
-                    'accepted',
-                    $sent . ' photo' . ($sent === 1 ? '' : 's') . ' sent automatically; '
-                        . $remaining . ' still waiting in the queue.',
-                    'Cron'
-                );
+            if ($pending === null) {
+                // Only failed photos left in front; the next run moves on.
+                break;
             }
 
-            $messages[] = $order['reference'] . ': ' . $sent . ' photo'
-                . ($sent === 1 ? '' : 's') . ' sent'
-                . ($remaining > 0 ? ', ' . $remaining . ' waiting' : '');
+            $result = send_photo_to_printer($epson, $frontOrder, $pending, ['pending']);
+
+            if (!empty($result['skipped'])) {
+                $skippedTotal++;
+                usleep(500000);
+                continue;
+            }
+
+            if (!$result['ok']) {
+                $failedTotal++;
+                $errors[] = $frontOrder['reference'] . ': ' . $result['error'];
+                break;
+            }
+
+            $sentTotal++;
+
+            // Let the printer pick the job up before the first status check.
+            sleep(3);
+        }
+
+        if ($sentTotal > 0) {
+            $messages[] = $frontRef . ': ' . $sentTotal . ' photo'
+                . ($sentTotal === 1 ? '' : 's') . ' sent one at a time.';
         }
 
         if ($skippedTotal > 0) {

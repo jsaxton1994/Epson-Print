@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.19';
+const APP_VERSION = '1.3.20';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -83,6 +83,12 @@ const PRINT_BATCH_MAX = 10;
 const PRINT_BATCH_SECONDS = 20;
 const STATUS_BATCH_MAX = 25;
 const STATUS_BATCH_SECONDS = 20;
+
+// Strict print sequencing. The worker sends one photo, waits for the printer
+// to report it finished, then sends the next — so sheets come out in order and
+// a second order cannot start until the first is complete.
+const PRINT_SEQUENTIAL_SECONDS = 150;
+const PRINT_POLL_SECONDS = 8;
 
 // Queue monitoring. The watchdog runs separately from the print worker so it
 // can still alert when the worker itself has stopped.

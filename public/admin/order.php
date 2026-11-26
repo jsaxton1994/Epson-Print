@@ -98,6 +98,22 @@ if (is_post()) {
             redirect($back);
         }
 
+        // One order at a time: sending now would put these sheets into the
+        // middle of another order the printer is still working through.
+        $busyOrder = db_one(
+            "SELECT o.reference FROM order_photos p
+             JOIN orders o ON o.id = p.order_id
+             WHERE p.status = 'printing' AND p.order_id <> ?
+             ORDER BY p.id ASC
+             LIMIT 1",
+            [$orderId]
+        );
+
+        if ($busyOrder !== null) {
+            flash('error', 'Order ' . $busyOrder['reference'] . ' is still printing. Wait for it to finish before sending this order.');
+            redirect($back);
+        }
+
         // Work through a slice with a time budget. Big orders are finished over
         // several clicks instead of holding one request open for 100 Epson jobs.
         // Allow the slowest single Epson call to finish before PHP's own limit.
