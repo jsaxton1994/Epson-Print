@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.28';
+const APP_VERSION = '1.3.29';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -115,5 +115,8 @@ const PRINT_QUEUE_ALERT_COOLDOWN_MINUTES = 60;
 
 const EPSON_AUTH_URL = 'https://auth.epsonconnect.com';
 const EPSON_API_URL  = 'https://api.epsonconnect.com/api/2';
-const EPSON_TIMEOUT  = 45;
+// Epson calls are slow from shared hosting, and uploads move the whole photo in
+// one request, so both get a long timeout and are retried on a transport error.
+const EPSON_TIMEOUT        = 90;
+const EPSON_UPLOAD_TIMEOUT = 120;
 const EPSON_PRINTER_MODEL = 'Epson ET-2926';

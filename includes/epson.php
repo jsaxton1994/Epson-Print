@@ -122,7 +122,8 @@ final class EpsonClient
 
     public function deviceInfo(): array
     {
-        return $this->api('GET', '/printing/devices/info');
+        // Used for the dashboard's live status: fail fast rather than hold a page.
+        return $this->api('GET', '/printing/devices/info', null, 30, 1);
     }
 
     public function capability(string $mode = 'photo'): array
@@ -174,14 +175,36 @@ final class EpsonClient
         }
 
         $this->upload((string) $job['uploadUri'], $bytes, $extension);
-        $this->api('POST', '/printing/jobs/' . rawurlencode((string) $job['jobId']) . '/print');
+
+        try {
+            $this->api(
+                'POST',
+                '/printing/jobs/' . rawurlencode((string) $job['jobId']) . '/print',
+                null,
+                EPSON_UPLOAD_TIMEOUT,
+                2
+            );
+        } catch (EpsonException $e) {
+            // A start command that timed out may still have started the job.
+            // Ask Epson before failing the photo (and risking a second sheet).
+            try {
+                $state = $this->jobState($this->jobStatus((string) $job['jobId']));
+            } catch (EpsonException) {
+                throw $e;
+            }
+
+            if (!in_array($state['status'], ['pending', 'pending_held', 'processing', 'processing_stopped', 'completed'], true)) {
+                throw $e;
+            }
+        }
 
         return $job;
     }
 
     public function jobStatus(string $jobId): array
     {
-        return $this->api('GET', '/printing/jobs/' . rawurlencode($jobId));
+        // Status checks run in loops, so one attempt with a shorter timeout.
+        return $this->api('GET', '/printing/jobs/' . rawurlencode($jobId), null, 60, 1);
     }
 
     /**
@@ -339,35 +362,53 @@ final class EpsonClient
         $size = strlen($data);
         $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $data,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: ' . $mime,
-                'Content-Length: ' . $size,
-                'Expect:',
-            ],
-        ]);
+        $error  = '';
+        $status = 0;
 
-        $body   = curl_exec($ch);
-        $error  = curl_error($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
+        // Uploads are the slowest call and a one-off dropped connection should
+        // not fail the photo, so retry a transport failure a couple of times.
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $data,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => EPSON_UPLOAD_TIMEOUT,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: ' . $mime,
+                    'Content-Length: ' . $size,
+                    'Expect:',
+                ],
+            ]);
 
-        if ($body === false || $error !== '') {
-            throw new EpsonException('Could not upload the photo to Epson: ' . $error);
+            $body   = curl_exec($ch);
+            $error  = curl_error($ch);
+            $errno  = curl_errno($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+
+            if ($body !== false && $error === '' && $status < 400) {
+                return;
+            }
+
+            if ($status >= 400) {
+                throw new EpsonException('Epson rejected the photo upload (HTTP ' . $status . ').', $status);
+            }
+
+            $error = $error !== '' ? $error . ' (cURL ' . $errno . ')' : 'no response from Epson';
+
+            if ($attempt < 2) {
+                sleep(2);
+            }
         }
-        if ($status >= 400) {
-            throw new EpsonException('Epson rejected the photo upload (HTTP ' . $status . ').', $status);
-        }
+
+        throw new EpsonException('Could not upload the photo to Epson: ' . $error);
     }
 
-    private function api(string $method, string $path, ?array $body = null): array
+    private function api(string $method, string $path, ?array $body = null, int $timeout = 0, int $attempts = 2): array
     {
         $headers = [
             'Authorization: Bearer ' . $this->accessToken(),
@@ -379,24 +420,44 @@ final class EpsonClient
             $headers[] = 'Content-Type: application/json';
         }
 
-        $ch = curl_init(EPSON_API_URL . $path);
-        curl_setopt_array($ch, [
-            CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_HTTPHEADER     => $headers,
-        ]);
+        $timeout  = $timeout > 0 ? $timeout : EPSON_TIMEOUT;
+        $attempts = max(1, $attempts);
+        $error    = '';
+        $raw      = false;
+        $status   = 0;
 
-        if ($body !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $ch = curl_init(EPSON_API_URL . $path);
+            curl_setopt_array($ch, [
+                CURLOPT_CUSTOMREQUEST  => $method,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                CURLOPT_HTTPHEADER     => $headers,
+            ]);
+
+            if ($body !== null) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
+            }
+
+            $raw    = curl_exec($ch);
+            $error  = curl_error($ch);
+            $errno  = curl_errno($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+
+            if ($raw !== false && $error === '') {
+                break;
+            }
+
+            $error = $error !== '' ? $error . ' (cURL ' . $errno . ')' : 'no response from Epson';
+
+            if ($attempt < $attempts) {
+                sleep($attempt * 2);
+            }
         }
-
-        $raw    = curl_exec($ch);
-        $error  = curl_error($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
 
         if ($raw === false || $error !== '') {
             throw new EpsonException('Could not reach Epson Connect: ' . $error);

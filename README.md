@@ -94,6 +94,8 @@ Before upload, each photo is placed on a canvas of exactly the paper's shape (`p
 
 Before sending, the order page in admin shows **Print preview** for the next photo — the exact padded image Epson receives, with a **Preview** link on every photo row to open the full-size version (`admin/print-preview.php`).
 
+Epson calls are slow from the host, so the client is built to ride that out: every request is pinned to HTTP/1.1 over IPv4, API calls and uploads retry once on a dropped connection before the photo is failed, uploads get `EPSON_UPLOAD_TIMEOUT` (120 s), and the padded sheet is capped at 2400 px on the long edge (~400 ppi on 6 in) so each upload stays small. Failures carry the cURL code, e.g. `Operation timed out after 45001 milliseconds … (cURL 28)`, which tells a timeout from a refused connection.
+
 ## Automatic print queue (cron)
 
 Accepted orders are printed without another click. Add this command to a cPanel cron job running **every minute**:

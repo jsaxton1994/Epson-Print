@@ -866,6 +866,9 @@ function send_photo_to_printer(
         return ['ok' => false, 'skipped' => true, 'error' => 'This photo is not available to send.'];
     }
 
+    // A slow Epson upload can outlast PHP's web execution limit default.
+    @set_time_limit(EPSON_UPLOAD_TIMEOUT + 120);
+
     $lockName = 'printfree_photo_' . $photoId;
     $locked   = db_val('SELECT GET_LOCK(?, 0)', [$lockName]);
 
@@ -1121,8 +1124,9 @@ function photo_print_canvas(array $photo, string $paperSize, bool $borderless = 
         }
     }
 
-    // Cap the printable size: 3000 px on the long edge is ~500 ppi on 6 in.
-    $scale = min(1, 3000 / max($canvasWidth, $canvasHeight));
+    // Cap the printable size: 2400 px on the long edge is ~400 ppi on 6 in,
+    // and keeps the upload small enough for a slow server-to-Epson link.
+    $scale = min(1, 2400 / max($canvasWidth, $canvasHeight));
 
     $canvasWidth  = max(1, (int) round($canvasWidth * $scale));
     $canvasHeight = max(1, (int) round($canvasHeight * $scale));
@@ -1622,7 +1626,7 @@ function photo_gd_to_jpeg(string $data, int $width, int $height): ?array
     imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
 
     ob_start();
-    $ok   = imagejpeg($canvas, null, 92);
+    $ok   = imagejpeg($canvas, null, 90);
     $jpeg = ob_get_clean();
 
     imagedestroy($canvas);
