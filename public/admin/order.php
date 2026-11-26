@@ -564,6 +564,31 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
             <?php if ($count === 0): ?>
                 <div class="table-empty">No photos in this order yet.</div>
             <?php else: ?>
+            <?php
+            // The next photo to print, as the printer will actually receive it.
+            $previewPhoto = null;
+            foreach ($photos as $candidate) {
+                if (in_array($candidate['status'], ['pending', 'printing'], true)) {
+                    $previewPhoto = $candidate;
+                    break;
+                }
+            }
+            ?>
+            <?php if ($previewPhoto !== null): ?>
+                <?php $previewUrl = url('admin/print-preview.php?photo=' . (int) $previewPhoto['id']); ?>
+                <div class="print-preview">
+                    <a href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">
+                        <img src="<?= e($previewUrl . '&w=520') ?>" alt="Print preview of the padded image for <?= e($previewPhoto['file_name']) ?>" loading="lazy">
+                    </a>
+                    <div>
+                        <strong>Print preview: <?= e($previewPhoto['file_name']) ?></strong>
+                        <p>
+                            Exactly what the printer receives: padded to <?= e(paper_size_label($order['paper_size'])) ?><?= (int) $order['borderless'] === 1 ? ' with a slim white margin, so the borderless trim cannot reach the photo' : ' with a white border' ?>.
+                            <a class="print-preview-link" href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">Open full size <?= icon('arrow-right') ?></a>
+                        </p>
+                    </div>
+                </div>
+            <?php endif; ?>
             <div class="table-wrap">
                 <table class="table">
                     <thead>
@@ -631,6 +656,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                             <button class="btn btn-ghost btn-sm" type="submit"><?= icon('refresh') ?> Release</button>
                                         </form>
                                     <?php endif; ?>
+                                    <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/print-preview.php?photo=' . (int) $photo['id'])) ?>" target="_blank" rel="noopener"><?= icon('image') ?> Preview</a>
                                     <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?> Download</a>
                                 </div>
                             </td>

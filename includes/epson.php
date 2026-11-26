@@ -144,7 +144,11 @@ final class EpsonClient
     {
         // Pad the photo to the paper's shape first: Epson otherwise enlarges the
         // image to fill the sheet and trims whatever hangs over the edge.
-        $printBytes = photo_print_canvas($photo, (string) ($order['paper_size'] ?? '4x6'));
+        $printBytes = photo_print_canvas(
+            $photo,
+            (string) ($order['paper_size'] ?? '4x6'),
+            !empty($order['borderless'])
+        );
         $bytes      = $printBytes ?? photo_binary($photo);
 
         if ($bytes === null) {

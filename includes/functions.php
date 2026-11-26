@@ -1034,6 +1034,28 @@ function paper_aspect_ratio(string $paperSize): float
 }
 
 /**
+ * ini memory_limit value ("256M", "-1", bytes) as bytes; -1 means unlimited.
+ */
+function memory_limit_bytes(string $value): int
+{
+    $value = trim($value);
+
+    if ($value === '' || $value === '-1') {
+        return -1;
+    }
+
+    $unit  = strtolower(substr($value, -1));
+    $bytes = (float) $value;
+
+    return (int) match ($unit) {
+        'g'     => $bytes * 1073741824,
+        'm'     => $bytes * 1048576,
+        'k'     => $bytes * 1024,
+        default => $bytes,
+    };
+}
+
+/**
  * Photo bytes padded to the paper's shape so the printer never crops.
  *
  * Epson fills the sheet in photo mode: when the photo's shape differs from the
@@ -1041,10 +1063,15 @@ function paper_aspect_ratio(string $paperSize): float
  * canvas of exactly the paper's shape (white where the photo is shorter) means
  * the whole photo fits on the sheet, portrait or landscape, whatever the paper.
  *
- * Returns null when the bytes are already the right shape or GD cannot decode
- * them, in which case the original file is printed unchanged.
+ * Borderless prints also get a slim white margin around the photo: the printer
+ * trims a millimetre or two off every edge to reach the paper edge, and that
+ * trim then lands in the margin instead of the picture.
+ *
+ * Large photos are given the memory one decode needs; this only returns null
+ * when the host refuses that memory or GD cannot decode the file, and the
+ * original is printed unchanged.
  */
-function photo_print_canvas(array $photo, string $paperSize): ?string
+function photo_print_canvas(array $photo, string $paperSize, bool $borderless = false): ?string
 {
     if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
         return null;
@@ -1065,17 +1092,14 @@ function photo_print_canvas(array $photo, string $paperSize): ?string
     $width  = (int) $info[0];
     $height = (int) $info[1];
 
-    // Decoding is memory hungry; leave very large files alone rather than risk
-    // exhausting the request.
-    if ($width * $height > 20_000_000) {
+    $ratio        = paper_aspect_ratio($paperSize);
+    $aspect       = $width >= $height ? $width / $height : $height / $width;
+    $matchesPaper = abs($aspect - $ratio) < 0.005;
+
+    // A photo that already matches the paper needs no padding. Borderless
+    // prints still get the safety margin, so they are drawn either way.
+    if ($matchesPaper && !$borderless) {
         return null;
-    }
-
-    $ratio  = paper_aspect_ratio($paperSize);
-    $aspect = $width >= $height ? $width / $height : $height / $width;
-
-    if (abs($aspect - $ratio) < 0.005) {
-        return null; // Already the paper's shape, so printing it as-is loses nothing.
     }
 
     // Canvas in the photo's own orientation, matching the paper's shape.
@@ -1102,43 +1126,74 @@ function photo_print_canvas(array $photo, string $paperSize): ?string
 
     $canvasWidth  = max(1, (int) round($canvasWidth * $scale));
     $canvasHeight = max(1, (int) round($canvasHeight * $scale));
-    $drawWidth    = max(1, (int) round($width * $scale));
-    $drawHeight   = max(1, (int) round($height * $scale));
 
-    $image = @imagecreatefromstring($data);
+    // 2% of the short side is about the trim a borderless print takes off each
+    // edge, so the printer cuts the white margin and not the photo.
+    $margin = $borderless ? max(2, (int) round(min($canvasWidth, $canvasHeight) * 0.02)) : 0;
 
-    if ($image === false) {
-        return null;
+    $innerWidth  = max(1, $canvasWidth - ($margin * 2));
+    $innerHeight = max(1, $canvasHeight - ($margin * 2));
+    $fit         = min($innerWidth / $width, $innerHeight / $height);
+
+    $drawWidth  = max(1, min($innerWidth, (int) round($width * $fit)));
+    $drawHeight = max(1, min($innerHeight, (int) round($height * $fit)));
+
+    // One decode of a large photo needs roughly 5 bytes per pixel. Ask for
+    // that much memory so big phone photos are padded too, and give up only
+    // when the host will not allow it.
+    $previousLimit = (string) ini_get('memory_limit');
+    $required      = (int) ($width * $height * 5) + (64 * 1024 * 1024);
+    $limit         = memory_limit_bytes($previousLimit);
+
+    if ($limit !== -1 && $limit < $required) {
+        @ini_set('memory_limit', (int) ceil($required / 1048576) . 'M');
+        $limit = memory_limit_bytes((string) ini_get('memory_limit'));
     }
 
-    $canvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+    if ($limit !== -1 && $limit < $required) {
+        return null; // Not enough memory to pad safely; print the original.
+    }
 
-    if ($canvas === false) {
+    try {
+        $image = @imagecreatefromstring($data);
+
+        if ($image === false) {
+            return null;
+        }
+
+        $canvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+
+        if ($canvas === false) {
+            imagedestroy($image);
+
+            return null;
+        }
+
+        imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+        imagecopyresampled(
+            $canvas,
+            $image,
+            (int) round(($canvasWidth - $drawWidth) / 2),
+            (int) round(($canvasHeight - $drawHeight) / 2),
+            0,
+            0,
+            $drawWidth,
+            $drawHeight,
+            $width,
+            $height
+        );
+
+        ob_start();
+        $ok   = imagejpeg($canvas, null, 92);
+        $jpeg = ob_get_clean();
+
+        imagedestroy($canvas);
         imagedestroy($image);
-
-        return null;
+    } finally {
+        if ($previousLimit !== '') {
+            @ini_set('memory_limit', $previousLimit);
+        }
     }
-
-    imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
-    imagecopyresampled(
-        $canvas,
-        $image,
-        (int) round(($canvasWidth - $drawWidth) / 2),
-        (int) round(($canvasHeight - $drawHeight) / 2),
-        0,
-        0,
-        $drawWidth,
-        $drawHeight,
-        $width,
-        $height
-    );
-
-    ob_start();
-    $ok   = imagejpeg($canvas, null, 92);
-    $jpeg = ob_get_clean();
-
-    imagedestroy($canvas);
-    imagedestroy($image);
 
     return $ok && is_string($jpeg) && $jpeg !== '' ? $jpeg : null;
 }
