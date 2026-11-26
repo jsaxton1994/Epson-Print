@@ -170,6 +170,18 @@ final class EpsonClient
      */
     public function printPhoto(array $order, array $photo): array
     {
+        $job = $this->preparePhoto($order, $photo);
+        $this->startPhoto($job);
+
+        return $job;
+    }
+
+    /**
+     * Create the job and upload the photo without printing it, so the upload can
+     * happen while the previous sheet is still on the printer.
+     */
+    public function preparePhoto(array $order, array $photo): array
+    {
         // The photo is sent exactly as it was uploaded: no resizing, padding or
         // recompression, so the print is the customer's own file.
         $bytes = photo_binary($photo);
@@ -201,12 +213,20 @@ final class EpsonClient
         $this->lastStage = 'upload';
         $this->upload((string) $job['uploadUri'], $bytes, $extension);
 
+        return $job;
+    }
+
+    /**
+     * Start a job that was created and uploaded earlier.
+     */
+    public function startPhoto(array $job): void
+    {
         $this->lastStage = 'start';
 
         try {
             $this->api(
                 'POST',
-                '/printing/jobs/' . rawurlencode((string) $job['jobId']) . '/print',
+                '/printing/jobs/' . rawurlencode((string) ($job['jobId'] ?? '')) . '/print',
                 null,
                 EPSON_UPLOAD_TIMEOUT,
                 2
@@ -224,8 +244,6 @@ final class EpsonClient
                 throw $e;
             }
         }
-
-        return $job;
     }
 
     public function jobStatus(string $jobId): array

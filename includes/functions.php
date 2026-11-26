@@ -867,6 +867,30 @@ function send_photo_to_printer(
     array $photo,
     array $allowedStatuses = ['pending']
 ): array {
+    $prepared = prepare_photo_for_printer($epson, $order, $photo, $allowedStatuses);
+
+    if (!$prepared['ok']) {
+        return $prepared;
+    }
+
+    return start_prepared_photo($epson, $order, $photo, $prepared['job'], $allowedStatuses);
+}
+
+/**
+ * Build the Epson job and upload the photo without starting it.
+ *
+ * Uploading is the slow part, so the worker does it while the previous sheet is
+ * still printing and later only has to send the start command.
+ *
+ * @param list<string> $allowedStatuses
+ * @return array{ok:bool,skipped:bool,transient?:bool,error:string,job?:array}
+ */
+function prepare_photo_for_printer(
+    EpsonClient $epson,
+    array $order,
+    array $photo,
+    array $allowedStatuses = ['pending']
+): array {
     $photoId = (int) ($photo['id'] ?? 0);
     $allowed = array_values(array_unique(array_filter(
         $allowedStatuses,
@@ -907,63 +931,12 @@ function send_photo_to_printer(
         }
 
         try {
-            $job = $epson->printPhoto($order, $photo);
-
-            $started = [
-                'status'        => 'printing',
-                'epson_job_id'  => (string) $job['jobId'],
-                'error_message' => null,
-                'printed_at'    => null,
-            ];
-
-            // Somewhere to measure a stuck job from. Skipped on installs where
-            // the column could not be added, so the send still succeeds.
-            if (print_started_column_ready()) {
-                $started['print_started_at'] = now();
-            }
-
-            db_update('order_photos', $started, 'id = ?', [$photoId]);
-
-            // Treat a successful send as queue progress so the watchdog does
-            // not flag a large accepted order that is still moving.
-            if (!empty($order['id'])) {
-                db_update('orders', ['updated_at' => now()], 'id = ?', [(int) $order['id']]);
-            }
-
-            return ['ok' => true, 'skipped' => false, 'error' => ''];
+            $job = $epson->preparePhoto($order, $photo);
         } catch (EpsonException $e) {
-            // A connection that never opened, or a failure before the start
-            // command, cannot have printed anything, so the photo stays queued
-            // for the next run instead of being marked as a failed print.
-            $neverPrinted = !$e->connected
-                || in_array($e->curlErrno, [6, 7], true)
-                || in_array($epson->lastStage, ['settings', 'create', 'upload'], true);
-
-            if ($e->transport && $neverPrinted) {
-                db_update('order_photos', [
-                    'status'        => 'pending',
-                    'error_message' => null,
-                ], 'id = ?', [$photoId]);
-
-                return [
-                    'ok'        => false,
-                    'skipped'   => false,
-                    'transient' => true,
-                    'error'     => $photo['file_name'] . ': Epson was unreachable, so the photo stays queued for the next run.',
-                ];
-            }
-
-            db_update('order_photos', [
-                'status'        => 'failed',
-                'error_message' => $e->getMessage(),
-            ], 'id = ?', [$photoId]);
-
-            return [
-                'ok'      => false,
-                'skipped' => false,
-                'error'   => $photo['file_name'] . ': ' . $e->getMessage(),
-            ];
+            return epson_send_failure($epson, $e, $photo);
         }
+
+        return ['ok' => true, 'skipped' => false, 'error' => '', 'job' => $job];
     } finally {
         try {
             db_val('SELECT RELEASE_LOCK(?)', [$lockName]);
@@ -971,6 +944,134 @@ function send_photo_to_printer(
             // The connection closing also releases the lock.
         }
     }
+}
+
+/**
+ * Start a job prepared earlier by prepare_photo_for_printer().
+ *
+ * @param list<string> $allowedStatuses
+ * @return array{ok:bool,skipped:bool,transient?:bool,error:string}
+ */
+function start_prepared_photo(
+    EpsonClient $epson,
+    array $order,
+    array $photo,
+    array $job,
+    array $allowedStatuses = ['pending']
+): array {
+    $photoId = (int) ($photo['id'] ?? 0);
+    $allowed = array_values(array_unique(array_filter(
+        $allowedStatuses,
+        static fn (mixed $status): bool => is_string($status) && $status !== ''
+    )));
+
+    if ($photoId <= 0 || empty($job['jobId']) || $allowed === []) {
+        return ['ok' => false, 'skipped' => true, 'error' => 'This photo is not available to send.'];
+    }
+
+    @set_time_limit(EPSON_UPLOAD_TIMEOUT + 120);
+
+    $lockName = 'printfree_photo_' . $photoId;
+    $locked   = db_val('SELECT GET_LOCK(?, 0)', [$lockName]);
+
+    if ((int) $locked !== 1) {
+        return [
+            'ok'      => false,
+            'skipped' => true,
+            'error'   => $photo['file_name'] . ': another print process is already sending this photo.',
+        ];
+    }
+
+    try {
+        $placeholders = implode(', ', array_fill(0, count($allowed), '?'));
+        $current = db_one(
+            'SELECT status FROM order_photos WHERE id = ? AND status IN (' . $placeholders . ')',
+            array_merge([$photoId], $allowed)
+        );
+
+        if ($current === null) {
+            return [
+                'ok'      => false,
+                'skipped' => true,
+                'error'   => $photo['file_name'] . ': this photo has already been handled.',
+            ];
+        }
+
+        try {
+            $epson->startPhoto($job);
+        } catch (EpsonException $e) {
+            return epson_send_failure($epson, $e, $photo);
+        }
+
+        $started = [
+            'status'        => 'printing',
+            'epson_job_id'  => (string) $job['jobId'],
+            'error_message' => null,
+            'printed_at'    => null,
+        ];
+
+        // Somewhere to measure a stuck job from. Skipped on installs where the
+        // column could not be added, so the send still succeeds.
+        if (print_started_column_ready()) {
+            $started['print_started_at'] = now();
+        }
+
+        db_update('order_photos', $started, 'id = ?', [$photoId]);
+
+        // Treat a successful send as queue progress so the watchdog does not
+        // flag a large accepted order that is still moving.
+        if (!empty($order['id'])) {
+            db_update('orders', ['updated_at' => now()], 'id = ?', [(int) $order['id']]);
+        }
+
+        return ['ok' => true, 'skipped' => false, 'error' => ''];
+    } finally {
+        try {
+            db_val('SELECT RELEASE_LOCK(?)', [$lockName]);
+        } catch (Throwable) {
+            // The connection closing also releases the lock.
+        }
+    }
+}
+
+/**
+ * Record a failed send. A connection that never opened, or a failure before the
+ * start command, cannot have printed anything, so the photo stays queued for
+ * the next run instead of being marked as a failed print.
+ *
+ * @return array{ok:bool,skipped:bool,transient?:bool,error:string}
+ */
+function epson_send_failure(EpsonClient $epson, EpsonException $e, array $photo): array
+{
+    $photoId      = (int) ($photo['id'] ?? 0);
+    $neverPrinted = !$e->connected
+        || in_array($e->curlErrno, [6, 7], true)
+        || in_array($epson->lastStage, ['settings', 'create', 'upload'], true);
+
+    if ($e->transport && $neverPrinted) {
+        db_update('order_photos', [
+            'status'        => 'pending',
+            'error_message' => null,
+        ], 'id = ?', [$photoId]);
+
+        return [
+            'ok'        => false,
+            'skipped'   => false,
+            'transient' => true,
+            'error'     => $photo['file_name'] . ': Epson was unreachable, so the photo stays queued for the next run.',
+        ];
+    }
+
+    db_update('order_photos', [
+        'status'        => 'failed',
+        'error_message' => $e->getMessage(),
+    ], 'id = ?', [$photoId]);
+
+    return [
+        'ok'      => false,
+        'skipped' => false,
+        'error'   => $photo['file_name'] . ': ' . $e->getMessage(),
+    ];
 }
 
 /**

@@ -74,6 +74,39 @@ try {
         $frontRef     = '';
         $frontId      = 0;
 
+        // The next photo is created and uploaded while the current sheet is
+        // still printing, so the printer only waits for a start command.
+        $prepared  = null;
+
+        $prepareNext = static function (array $order) use ($epson, &$messages, &$errors): ?array {
+            $next = db_one(
+                'SELECT ' . order_photo_columns() . '
+                 FROM order_photos
+                 WHERE order_id = ? AND status = \'pending\'
+                 ORDER BY position ASC, id ASC
+                 LIMIT 1',
+                [(int) $order['id']]
+            );
+
+            if ($next === null) {
+                return null;
+            }
+
+            $ready = prepare_photo_for_printer($epson, $order, $next, ['pending']);
+
+            if ($ready['ok']) {
+                return ['order_id' => (int) $order['id'], 'photo' => $next, 'job' => $ready['job']];
+            }
+
+            if (!empty($ready['transient'])) {
+                $messages[] = (string) $order['reference'] . ': ' . $ready['error'];
+            } elseif (empty($ready['skipped'])) {
+                $errors[] = (string) $order['reference'] . ': ' . $ready['error'];
+            }
+
+            return null;
+        };
+
         // Queue position is the time the order was accepted, not its id, so an
         // order submitted later but accepted first prints first. Orders
         // accepted before the column existed fall back to their submit time.
@@ -100,6 +133,11 @@ try {
 
             $frontId  = (int) $frontOrder['id'];
             $frontRef = (string) $frontOrder['reference'];
+
+            if ($prepared !== null && $prepared['order_id'] !== $frontId) {
+                // The front order changed: the uploaded job is not needed.
+                $prepared = null;
+            }
 
             $printing = db_one(
                 "SELECT p.id, p.order_id, p.status, p.epson_job_id
@@ -155,6 +193,26 @@ try {
                     }
 
                     sync_order_status((int) $printing['order_id'], 'Cron');
+
+                    // The printer is free now: start the photo that was uploaded
+                    // while this sheet printed, then upload the next one.
+                    if ($prepared !== null && $result['status'] !== 'printing') {
+                        $started = start_prepared_photo($epson, $frontOrder, $prepared['photo'], $prepared['job']);
+                        $prepared = null;
+
+                        if ($started['ok']) {
+                            $sentTotal++;
+                            sync_order_status($frontId, 'Cron');
+                            $prepared = $prepareNext($frontOrder);
+                        } elseif (!empty($started['skipped'])) {
+                            $skippedTotal++;
+                        } elseif (!empty($started['transient'])) {
+                            $messages[] = $frontRef . ': ' . $started['error'];
+                        } else {
+                            $failedTotal++;
+                            $errors[] = $frontRef . ': ' . $started['error'];
+                        }
+                    }
                 }
 
                 // The status call itself takes several seconds, so only wait what
@@ -168,7 +226,34 @@ try {
                 continue;
             }
 
-            // The printer is free: send the next photo of the front order.
+            // The printer is free: start the photo uploaded for it, if any.
+            if ($prepared !== null) {
+                $started  = start_prepared_photo($epson, $frontOrder, $prepared['photo'], $prepared['job']);
+                $prepared = null;
+
+                if ($started['ok']) {
+                    $sentTotal++;
+                    sync_order_status($frontId, 'Cron');
+                    $prepared = $prepareNext($frontOrder);
+                    continue;
+                }
+
+                if (!empty($started['skipped'])) {
+                    $skippedTotal++;
+                    continue;
+                }
+
+                if (!empty($started['transient'])) {
+                    $messages[] = $frontRef . ': ' . $started['error'];
+                    break;
+                }
+
+                $failedTotal++;
+                $errors[] = $frontRef . ': ' . $started['error'];
+                break;
+            }
+
+            // Nothing is uploaded yet: send the next photo of the front order.
             $pending = db_one(
                 'SELECT ' . order_photo_columns() . '
                  FROM order_photos
@@ -210,8 +295,9 @@ try {
             // finishes) so the dashboard reflects the active order.
             sync_order_status($frontId, 'Cron');
 
-            // The next pass checks the job straight away and starts the next
-            // photo as soon as the printer reports this one finished.
+            // Upload the following photo now, while this sheet prints, so the
+            // printer starts it as soon as Epson reports this one finished.
+            $prepared = $prepareNext($frontOrder);
         }
 
         if ($sentTotal > 0) {
