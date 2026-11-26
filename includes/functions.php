@@ -231,6 +231,87 @@ function send_queue_alert(string $subject, string $body): bool
  * @return array<string, mixed>
  */
 /**
+ * Epson request counters, used to stop hammering an endpoint that is down.
+ *
+ * @return array{total:int,failed:int,consecutive:int,circuit_until:int,last_ok_at:string,last_error:string,last_error_at:string}
+ */
+function epson_request_stats(): array
+{
+    $stats    = json_decode((string) setting('epson_request_stats', ''), true);
+    $defaults = [
+        'total'         => 0,
+        'failed'        => 0,
+        'consecutive'   => 0,
+        'circuit_until' => 0,
+        'last_ok_at'    => '',
+        'last_error'    => '',
+        'last_error_at' => '',
+    ];
+
+    return is_array($stats) ? array_merge($defaults, $stats) : $defaults;
+}
+
+/**
+ * Record one Epson HTTP attempt. Two transport failures in a row open a short
+ * circuit so the worker fails fast instead of spending minutes in timeouts.
+ */
+function epson_log_request(array $entry): void
+{
+    $entry += [
+        'at'         => now(),
+        'host'       => '',
+        'path'       => '',
+        'ok'         => false,
+        'errno'      => 0,
+        'http'       => 0,
+        'connect_ms' => 0,
+        'total_ms'   => 0,
+        'error'      => '',
+    ];
+
+    $log = json_decode((string) setting('epson_request_log', ''), true);
+    $log = is_array($log) ? $log : [];
+    array_unshift($log, $entry);
+
+    set_setting('epson_request_log', json_encode(array_slice($log, 0, EPSON_LOG_LIMIT), JSON_UNESCAPED_SLASHES));
+
+    $stats              = epson_request_stats();
+    $stats['total']     = (int) $stats['total'] + 1;
+
+    if (!empty($entry['ok'])) {
+        $stats['consecutive']   = 0;
+        $stats['circuit_until'] = 0;
+        $stats['last_ok_at']    = (string) $entry['at'];
+    } else {
+        $stats['failed']        = (int) $stats['failed'] + 1;
+        $stats['consecutive']   = (int) $stats['consecutive'] + 1;
+        $stats['last_error']    = mb_substr((string) $entry['error'], 0, 200);
+        $stats['last_error_at'] = (string) $entry['at'];
+
+        if ((int) $stats['consecutive'] >= EPSON_CIRCUIT_THRESHOLD) {
+            $stats['circuit_until'] = time() + EPSON_CIRCUIT_SECONDS;
+        }
+    }
+
+    set_setting('epson_request_stats', json_encode($stats, JSON_UNESCAPED_SLASHES));
+}
+
+function epson_circuit_seconds(): int
+{
+    return max(0, (int) epson_request_stats()['circuit_until'] - time());
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function epson_recent_requests(int $limit = 10): array
+{
+    $log = json_decode((string) setting('epson_request_log', ''), true);
+
+    return is_array($log) ? array_slice($log, 0, $limit) : [];
+}
+
+/**
  * Whether automatic printing is paused for maintenance.
  */
 function printing_paused(): bool
@@ -361,6 +442,20 @@ function printer_live_status(?EpsonClient $epson = null): array
 
     $status = printer_live_status_now($epson);
     $status['cached'] = false;
+
+    // When Epson cannot be reached, keep showing the last known state instead of
+    // replacing the card with an error; it is marked stale so the dashboard can
+    // say so. The circuit breaker stops this from costing a timeout every poll.
+    $reachable = ($status['state'] ?? '') !== 'unreachable';
+
+    if (!$reachable && is_array($cached) && !empty($cached['checked_at'])
+        && strtotime((string) $cached['checked_at']) > time() - 600) {
+        $cached['cached']       = true;
+        $cached['stale']        = true;
+        $cached['last_attempt'] = now();
+
+        return $cached;
+    }
 
     set_setting('printer_status_cache', json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 

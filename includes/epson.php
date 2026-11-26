@@ -31,6 +31,9 @@ final class EpsonClient
     /** Last print step reached, so a transport failure can be judged safely. */
     public string $lastStage = '';
 
+    /** Diagnostics only: skip the fail-fast circuit to test the connection. */
+    public bool $bypassCircuit = false;
+
     private array $config;
 
     public function __construct(array $config)
@@ -434,7 +437,7 @@ final class EpsonClient
                 CURLOPT_POSTFIELDS     => $data,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => EPSON_UPLOAD_TIMEOUT,
-                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_CONNECTTIMEOUT => EPSON_CONNECT_TIMEOUT,
                 CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_HTTPHEADER     => [
@@ -449,10 +452,22 @@ final class EpsonClient
             $body      = curl_exec($ch);
             $error     = curl_error($ch);
             $errno     = curl_errno($ch);
+            $info      = curl_getinfo($ch);
             $timings   = $this->requestTimings($ch);
-            $connected = $connected || (float) curl_getinfo($ch, CURLINFO_PRETRANSFER_TIME) > 0;
-            $status    = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $connected = $connected || (float) ($info['pretransfer_time'] ?? 0) > 0;
+            $status    = (int) ($info['http_code'] ?? 0);
             curl_close($ch);
+
+            epson_log_request([
+                'host'       => (string) parse_url($url, PHP_URL_HOST),
+                'path'       => 'upload',
+                'ok'         => $body !== false && $error === '' && $status < 400,
+                'errno'      => $errno,
+                'http'       => $status,
+                'connect_ms' => (int) round(1000 * (float) ($info['connect_time'] ?? 0)),
+                'total_ms'   => (int) round(1000 * (float) ($info['total_time'] ?? 0)),
+                'error'      => mb_substr($error, 0, 160),
+            ]);
 
             if ($body !== false && $error === '' && $status < 400) {
                 return;
@@ -493,6 +508,21 @@ final class EpsonClient
 
     private function api(string $method, string $path, ?array $body = null, int $timeout = 0, int $attempts = 2): array
     {
+        // Fail fast while the endpoint is known to be unreachable, instead of
+        // stacking up connection timeouts minute after minute.
+        $wait = epson_circuit_seconds();
+
+        if ($wait > 0 && !$this->bypassCircuit) {
+            throw new EpsonException(
+                'Epson Connect is not answering; retrying in ' . $wait . 's.',
+                0,
+                [],
+                true,
+                28,
+                false
+            );
+        }
+
         $headers = [
             'Authorization: Bearer ' . $this->accessToken(),
             'x-api-key: ' . $this->config['api_key'],
@@ -517,7 +547,7 @@ final class EpsonClient
                 CURLOPT_CUSTOMREQUEST  => $method,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => $timeout,
-                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_CONNECTTIMEOUT => EPSON_CONNECT_TIMEOUT,
                 CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_HTTPHEADER     => $headers,
@@ -532,10 +562,22 @@ final class EpsonClient
             $raw      = curl_exec($ch);
             $error    = curl_error($ch);
             $errno    = curl_errno($ch);
+            $info     = curl_getinfo($ch);
             $timings  = $this->requestTimings($ch);
-            $connected = $connected || (float) curl_getinfo($ch, CURLINFO_PRETRANSFER_TIME) > 0;
-            $status   = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $connected = $connected || (float) ($info['pretransfer_time'] ?? 0) > 0;
+            $status   = (int) ($info['http_code'] ?? 0);
             curl_close($ch);
+
+            epson_log_request([
+                'host'       => (string) parse_url($url, PHP_URL_HOST),
+                'path'       => $path,
+                'ok'         => $raw !== false && $error === '',
+                'errno'      => $errno,
+                'http'       => $status,
+                'connect_ms' => (int) round(1000 * (float) ($info['connect_time'] ?? 0)),
+                'total_ms'   => (int) round(1000 * (float) ($info['total_time'] ?? 0)),
+                'error'      => mb_substr($error, 0, 160),
+            ]);
 
             if ($raw !== false && $error === '') {
                 break;
@@ -611,7 +653,7 @@ final class EpsonClient
             CURLOPT_POSTFIELDS     => http_build_query($fields),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
-            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => EPSON_CONNECT_TIMEOUT,
             CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
             CURLOPT_HTTPHEADER     => [
                 'Authorization: Basic ' . base64_encode($this->config['client_id'] . ':' . $this->config['client_secret']),
@@ -623,9 +665,21 @@ final class EpsonClient
         $raw     = curl_exec($ch);
         $error   = curl_error($ch);
         $errno   = curl_errno($ch);
+        $info    = curl_getinfo($ch);
         $timings = $this->requestTimings($ch);
-        $status  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $status  = (int) ($info['http_code'] ?? 0);
         curl_close($ch);
+
+        epson_log_request([
+            'host'       => (string) parse_url(EPSON_AUTH_URL, PHP_URL_HOST),
+            'path'       => 'auth/token',
+            'ok'         => $raw !== false && $error === '' && $status < 400,
+            'errno'      => $errno,
+            'http'       => $status,
+            'connect_ms' => (int) round(1000 * (float) ($info['connect_time'] ?? 0)),
+            'total_ms'   => (int) round(1000 * (float) ($info['total_time'] ?? 0)),
+            'error'      => mb_substr($error, 0, 160),
+        ]);
 
         if ($raw === false || $error !== '') {
             throw new EpsonException(

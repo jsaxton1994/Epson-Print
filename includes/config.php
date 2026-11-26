@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.44';
+const APP_VERSION = '1.3.45';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -93,7 +93,7 @@ const PRINT_SEQUENTIAL_SECONDS = 540;
 const PRINT_POLL_SECONDS = 5;
 
 // How long the dashboard reuses a printer status before asking Epson again.
-const PRINT_STATUS_CACHE_SECONDS = 20;
+const PRINT_STATUS_CACHE_SECONDS = 45;
 
 // Queue monitoring. The watchdog runs separately from the print worker so it
 // can still alert when the worker itself has stopped.
@@ -120,5 +120,9 @@ const EPSON_API_URL  = 'https://api.epsonconnect.com/api/2';
 // Epson calls are slow from shared hosting, and uploads move the whole photo in
 // one request, so both get a long timeout and are retried on a transport error.
 const EPSON_TIMEOUT        = 90;
+const EPSON_CONNECT_TIMEOUT   = 20;  // TCP retransmits need longer than 10 s
+const EPSON_CIRCUIT_SECONDS   = 60;  // fail-fast window after repeated transport failures
+const EPSON_CIRCUIT_THRESHOLD = 2;   // consecutive failures that open the circuit
+const EPSON_LOG_LIMIT         = 40;  // recent Epson requests kept for diagnostics
 const EPSON_UPLOAD_TIMEOUT = 120;
 const EPSON_PRINTER_MODEL = 'Epson ET-2926';

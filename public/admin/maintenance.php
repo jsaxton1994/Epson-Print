@@ -36,11 +36,36 @@ if (is_post()) {
         flash('info', 'Printer status refreshed.');
         redirect('admin/maintenance.php');
     }
+
+    if ($action === 'test_connection') {
+        // Diagnostics: one request with the fail-fast circuit skipped.
+        @set_time_limit(60);
+        $epson->bypassCircuit = true;
+        $started = microtime(true);
+
+        try {
+            $device = $epson->deviceInfo();
+            $ms     = (int) round((microtime(true) - $started) * 1000);
+            flash('success', 'Epson answered in ' . $ms . ' ms.' . (!empty($device['connected']) ? ' The printer is linked.' : ' The printer is not reporting as connected.'));
+        } catch (EpsonException $e) {
+            $ms = (int) round((microtime(true) - $started) * 1000);
+            flash('error', 'Epson did not answer after ' . $ms . ' ms: ' . $e->getMessage());
+        }
+
+        redirect('admin/maintenance.php');
+    }
 }
 
 $pause  = printing_pause_info();
 $health = queue_health();
 $status = printer_live_status($epson);
+
+$epsonStats    = epson_request_stats();
+$circuitLeft   = epson_circuit_seconds();
+$recentRequests = epson_recent_requests(8);
+$successRate   = (int) $epsonStats['total'] > 0
+    ? (int) round((1 - ((int) $epsonStats['failed'] / (int) $epsonStats['total'])) * 100)
+    : null;
 
 $pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
 $waitingOrders = (int) $health['queued'];
@@ -161,6 +186,58 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                     <div class="summary-row"><span>Waiting orders</span><strong><?= $waitingOrders ?></strong></div>
                     <div class="summary-row"><span>Photos waiting</span><strong><?= $pendingPhotos ?></strong></div>
                 </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Epson connection</h3>
+                    <p>Request health and recent attempts</p>
+                </div>
+                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="test_connection">
+                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('bolt') ?> Test</button>
+                </form>
+            </div>
+            <div class="panel-body">
+                <div class="summary-list" style="margin:0 0 12px">
+                    <div class="summary-row"><span>State</span><strong><?= $circuitLeft > 0 ? 'Failing fast, retry in ' . $circuitLeft . ' s' : 'Calling Epson normally' ?></strong></div>
+                    <div class="summary-row"><span>Requests / failures</span><strong><?= (int) $epsonStats['total'] ?> / <?= (int) $epsonStats['failed'] ?><?= $successRate !== null ? ' · ' . $successRate . '% ok' : '' ?></strong></div>
+                    <div class="summary-row"><span>Consecutive failures</span><strong><?= (int) $epsonStats['consecutive'] ?></strong></div>
+                    <div class="summary-row"><span>Last success</span><strong><?= $epsonStats['last_ok_at'] !== '' ? e(time_ago((string) $epsonStats['last_ok_at'])) : 'None yet' ?></strong></div>
+                </div>
+
+                <?php if ($recentRequests === []): ?>
+                    <p class="muted" style="margin:0">No Epson requests logged yet. The next queue run fills this in.</p>
+                <?php else: ?>
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Time</th><th>Request</th><th>Result</th><th>Total</th></tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentRequests as $entry): ?>
+                                    <?php $entryAt = strtotime((string) $entry['at']) ?: time(); ?>
+                                    <tr>
+                                        <td class="muted"><?= e(date('H:i:s', $entryAt)) ?></td>
+                                        <td><?= e((string) $entry['path']) ?></td>
+                                        <td><?= !empty($entry['ok']) ? 'OK' : 'cURL ' . (int) $entry['errno'] ?></td>
+                                        <td><?= (int) $entry['total_ms'] ?> ms</td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($epsonStats['last_error'] !== ''): ?>
+                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
+                        Last error <?= e(time_ago((string) $epsonStats['last_error_at'])) ?>:
+                        <?= e((string) $epsonStats['last_error']) ?>
+                    </p>
+                <?php endif; ?>
             </div>
         </section>
 
