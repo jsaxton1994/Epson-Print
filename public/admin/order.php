@@ -202,25 +202,41 @@ if (is_post()) {
         redirect($back);
     }
 
-    if ($action === 'remove_photo') {
-        $photoId = (int) input('photo_id', '0');
-        $photo   = db_one(
-            'SELECT id, file_name FROM order_photos WHERE id = ? AND order_id = ?',
-            [$photoId, $orderId]
-        );
+    if ($action === 'remove_photos') {
+        $raw = $_POST['photo_ids'] ?? [];
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, is_array($raw) ? $raw : [$raw]),
+            static fn (int $id): bool => $id > 0
+        )));
 
-        if ($photo === null) {
-            flash('error', 'That photo is not part of this order any more.');
+        if ($ids === []) {
+            flash('error', 'Tick at least one photo to remove it from the order.');
             redirect($back);
         }
 
-        db_query('DELETE FROM order_photos WHERE id = ? AND order_id = ?', [$photoId, $orderId]);
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $selected = db_all(
+            'SELECT id, file_name FROM order_photos WHERE order_id = ? AND id IN (' . $placeholders . ')',
+            array_merge([$orderId], $ids)
+        );
 
+        if ($selected === []) {
+            flash('error', 'Those photos are not part of this order any more.');
+            redirect($back);
+        }
+
+        db_query(
+            'DELETE FROM order_photos WHERE order_id = ? AND id IN (' . $placeholders . ')',
+            array_merge([$orderId], $ids)
+        );
+
+        $removed   = count($selected);
         $remaining = order_photo_count($orderId);
+        $removedLabel = $removed === 1 ? 'Photo' : $removed . ' photos';
 
         if ($remaining === 0) {
             db_query('DELETE FROM orders WHERE id = ?', [$orderId]);
-            flash('success', 'Photo removed. It was the last one, so the empty order was deleted as well.');
+            flash('success', $removedLabel . ' removed. Nothing was left in the order, so it was deleted as well.');
             redirect('admin/orders.php');
         }
 
@@ -230,15 +246,16 @@ if (is_post()) {
         log_order_event(
             $orderId,
             $currentStatus,
-            'Removed ' . $photo['file_name'] . ' from the order; ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left.',
+            'Removed ' . ($removed === 1 ? '"' . $selected[0]['file_name'] . '"' : $removed . ' photos')
+                . ' from the order; ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left.',
             (string) $admin['name']
         );
 
-        // Removing a photo changes what is left to print, so keep the queue
+        // Removing photos changes what is left to print, so keep the queue
         // watchdog honest about the order still making progress.
         db_update('orders', ['updated_at' => now()], 'id = ?', [$orderId]);
 
-        flash('success', 'Photo removed. ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left in this order.');
+        flash('success', $removedLabel . ' removed. ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left in this order.');
         redirect($back);
     }
 
@@ -413,13 +430,22 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
             <div class="panel-head">
                 <div>
                     <h3>Photos in this order</h3>
-                    <p>Each photo prints once, as its own Epson job. Remove one to take it out of the order.</p>
+                    <p>Each photo prints once, as its own Epson job. Tick photos to take them out of the order.</p>
                 </div>
+                <form method="post" action="<?= e($back) ?>" id="remove-photos" class="table-actions"
+                      data-confirm="Remove the selected photos from this order? The stored photos are deleted permanently, and any already sent to the printer may still come out.">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="remove_photos">
+                    <button class="btn btn-danger btn-sm" type="submit"><?= icon('trash') ?> Remove selected</button>
+                </form>
             </div>
             <div class="table-wrap">
                 <table class="table">
                     <thead>
                     <tr>
+                        <th class="cell-check">
+                            <input type="checkbox" data-check-all="order-photos" aria-label="Select every photo in this order">
+                        </th>
                         <th>Photo</th>
                         <th class="nowrap">Size</th>
                         <th>Status</th>
@@ -430,6 +456,11 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <tbody>
                     <?php foreach ($photos as $index => $photo): ?>
                         <tr>
+                            <td class="cell-check">
+                                <input type="checkbox" name="photo_ids[]" value="<?= (int) $photo['id'] ?>"
+                                       form="remove-photos" data-check-item="order-photos"
+                                       aria-label="Select <?= e($photo['file_name']) ?> for removal">
+                            </td>
                             <td>
                                 <div class="doc-cell">
                                     <img class="thumb" src="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&thumb=1')) ?>"
@@ -460,18 +491,6 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                         </form>
                                     <?php endif; ?>
                                     <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?> Download</a>
-                                    <form method="post" action="<?= e($back) ?>" data-confirm="<?= e(
-                                        'Remove \'' . $photo['file_name'] . '\' from this order? The stored photo is deleted permanently.'
-                                        . ($photo['status'] === 'printing' || $photo['status'] === 'completed'
-                                            ? ' It has already been sent to the printer, so that print may still come out.'
-                                            : '')
-                                        . ' This cannot be undone.'
-                                    ) ?>">
-                                        <?= csrf_field() ?>
-                                        <input type="hidden" name="action" value="remove_photo">
-                                        <input type="hidden" name="photo_id" value="<?= (int) $photo['id'] ?>">
-                                        <button class="btn btn-danger btn-sm" type="submit"><?= icon('trash') ?> Remove</button>
-                                    </form>
                                 </div>
                             </td>
                         </tr>

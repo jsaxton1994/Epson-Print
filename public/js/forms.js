@@ -553,6 +553,29 @@
         });
     });
 
+    /* Table select-all ---------------------------------------------------- */
+    document.querySelectorAll("[data-check-all]").forEach((toggle) => {
+        const group = toggle.dataset.checkAll;
+        const items = () => Array.from(document.querySelectorAll(`[data-check-item="${group}"]`));
+
+        const sync = () => {
+            const all = items();
+            const checked = all.filter((item) => item.checked).length;
+            toggle.checked = all.length > 0 && checked === all.length;
+            toggle.indeterminate = checked > 0 && checked < all.length;
+        };
+
+        toggle.addEventListener("change", () => {
+            items().forEach((item) => {
+                item.checked = toggle.checked;
+            });
+            sync();
+        });
+
+        items().forEach((item) => item.addEventListener("change", sync));
+        sync();
+    });
+
     /* Confirmations and double submits ------------------------------------ */
     document.addEventListener(
         "submit",

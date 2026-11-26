@@ -912,6 +912,8 @@ hr {
 .table .cell-strong { color: var(--ink); font-weight: 600; }
 .table .cell-tight { white-space: nowrap; }
 .table .cell-actions { text-align: right; white-space: nowrap; }
+.table .cell-check { width: 1%; white-space: nowrap; }
+.table .cell-check input[type="checkbox"] { width: 17px; height: 17px; margin: 0; accent-color: var(--brand); cursor: pointer; }
 
 .table-empty {
     padding: 40px 20px;
