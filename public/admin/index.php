@@ -10,31 +10,6 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 $admin = require_admin();
 $epson = EpsonClient::fromSettings();
 
-if (is_post() && input('action') === 'queue_quality') {
-    verify_csrf();
-
-    $updated = db_update(
-        'orders',
-        ['print_quality' => 'normal'],
-        "status IN ('pending', 'accepted', 'printing', 'failed') AND print_quality <> 'normal'"
-    );
-
-    // New orders start at Standard too, so the queue stays fast after this one.
-    set_setting('default_print_quality', 'normal');
-
-    flash('success', $updated > 0
-        ? $updated . ' queued order' . ($updated === 1 ? '' : 's') . ' switched to Standard quality, and new orders now default to Standard. Photos already sent keep theirs.'
-        : 'Every queued order already prints at Standard quality; new orders now default to Standard too.');
-
-    redirect('admin/index.php');
-}
-
-$highQualityQueued = (int) db_val(
-    "SELECT COUNT(*) FROM orders
-     WHERE status IN ('pending', 'accepted', 'printing', 'failed')
-       AND print_quality = 'high'"
-);
-
 $counts = db_one(
     "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
             COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
@@ -244,16 +219,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
             <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
         </div>
-
-        <?php if ($highQualityQueued > 0): ?>
-            <form method="post" action="<?= e(url('admin/index.php')) ?>" class="queue-speedup"
-                  data-confirm="Print the remaining photos of <?= $highQualityQueued ?> queued order<?= $highQualityQueued === 1 ? '' : 's' ?> at Standard quality? Photos already sent keep their High quality.">
-                <?= csrf_field() ?>
-                <input type="hidden" name="action" value="queue_quality">
-                <button class="btn btn-soft btn-sm" type="submit"><?= icon('clock') ?> Print faster: switch <?= $highQualityQueued ?> queued order<?= $highQualityQueued === 1 ? '' : 's' ?> to Standard</button>
-                <p class="help">High quality is the slowest setting on the <?= e(EPSON_PRINTER_MODEL) ?>. This also makes Standard the default for new orders; photos already sent keep their quality.</p>
-            </form>
-        <?php endif; ?>
     </div>
 </section>
 

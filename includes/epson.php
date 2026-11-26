@@ -115,6 +115,7 @@ final class EpsonClient
         foreach ([
             'epson_refresh_token', 'epson_access_token', 'epson_token_expires',
             'epson_device_name', 'epson_device_serial', 'epson_connected_at',
+            'epson_capability_photo', 'epson_capability_document',
         ] as $key) {
             set_setting($key, '');
         }
@@ -126,9 +127,26 @@ final class EpsonClient
         return $this->api('GET', '/printing/devices/info', null, 30, 1);
     }
 
+    /**
+     * Printer capability, cached: it only changes when the printer is re-linked,
+     * and asking Epson on every photo added a slow API call to each sheet.
+     */
     public function capability(string $mode = 'photo'): array
     {
-        return $this->api('GET', '/printing/capability/' . $mode);
+        $key    = 'epson_capability_' . preg_replace('/[^a-z0-9_]/', '', strtolower($mode));
+        $cached = json_decode((string) setting($key, ''), true);
+
+        if (is_array($cached) && $cached !== []) {
+            return $cached;
+        }
+
+        $fresh = $this->api('GET', '/printing/capability/' . $mode, null, 30, 1);
+
+        if ($fresh !== []) {
+            set_setting($key, json_encode($fresh, JSON_UNESCAPED_SLASHES));
+        }
+
+        return $fresh;
     }
 
     /**
