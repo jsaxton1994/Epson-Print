@@ -70,6 +70,8 @@ if (is_post()) {
             redirect('admin/settings.php');
         }
 
+        $epson->bypassCircuit = true;
+
         try {
             $device = $epson->deviceInfo();
             if (!empty($device['productName'])) {
@@ -101,6 +103,9 @@ if (is_post()) {
             flash('error', 'Link the printer before changing job notifications.');
             redirect('admin/settings.php');
         }
+
+        // An administrator asking for this should always make one real attempt.
+        $epson->bypassCircuit = true;
 
         try {
             if ($action === 'notify_enable') {
