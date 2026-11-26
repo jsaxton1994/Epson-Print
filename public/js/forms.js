@@ -16,78 +16,14 @@
         });
     };
 
-    /* Upload step readout ------------------------------------------------ */
-    const isPhoneDevice = () => Boolean(navigator.userAgentData?.mobile)
-        || /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
-        || (window.matchMedia("(max-width: 820px)").matches && window.matchMedia("(pointer: coarse)").matches);
-
-    // The readout is for phones (where the picker can stall) and for anyone who
-    // adds ?debug=1 (or ?upload_debug=1) to the page. Desktop customers never
-    // see a debug box; steps still go to the console either way.
-    const showReadout = isPhoneDevice()
-        || /(?:^|[?&])(?:debug|upload_debug)=1(?:&|$)/.test(window.location.search);
-
+    /* Upload step logging (console only) --------------------------------- */
     const pickLog = (message) => {
-        const stamp = new Date().toLocaleTimeString();
-
-        if (showReadout) {
-            document.querySelectorAll("[data-pick-log-panel]").forEach((panel) => {
-                panel.hidden = false;
-                const element = panel.querySelector("[data-pick-log]");
-                if (!element) return;
-
-                const line = document.createElement("div");
-                line.textContent = `${stamp} · ${message}`;
-                element.appendChild(line);
-                while (element.children.length > 14) {
-                    element.removeChild(element.firstChild);
-                }
-                element.scrollTop = element.scrollHeight;
-            });
-        }
-
         try {
-            console.log(`[upload] ${stamp} · ${message}`);
+            console.log(`[upload] ${new Date().toLocaleTimeString()} · ${message}`);
         } catch (error) {
             /* Console may be unavailable. */
         }
     };
-
-    document.querySelectorAll("[data-pick-copy]").forEach((button) => {
-        button.addEventListener("click", async () => {
-            const panel = button.closest("[data-pick-log-panel]");
-            const log = panel?.querySelector("[data-pick-log]");
-            if (!log) return;
-
-            const text = Array.from(log.children).map((line) => line.textContent).join("\n");
-            let copied = false;
-
-            try {
-                await navigator.clipboard.writeText(text);
-                copied = true;
-            } catch (error) {
-                const helper = document.createElement("textarea");
-                helper.value = text;
-                helper.setAttribute("readonly", "");
-                helper.style.position = "fixed";
-                helper.style.opacity = "0";
-                document.body.appendChild(helper);
-                helper.select();
-                try {
-                    copied = document.execCommand("copy");
-                } catch (fallbackError) {
-                    copied = false;
-                }
-                helper.remove();
-            }
-
-            const original = button.textContent;
-            button.textContent = copied ? "Copied" : "Copy failed";
-            window.setTimeout(() => {
-                button.textContent = original;
-            }, 1600);
-        });
-    });
 
     /* Password visibility ------------------------------------------------- */
     document.querySelectorAll("[data-toggle-password]").forEach((button) => {
@@ -119,24 +55,22 @@
         // files stay in the input but are ignored, so the FileList never has to
         // be rebuilt (which can freeze a phone).
         let selectionLimit = 0;
+        let objectUrls = [];
+
+        const clearPreviewUrls = () => {
+            objectUrls.forEach((url) => URL.revokeObjectURL(url));
+            objectUrls = [];
+        };
 
         if (!input) return;
 
         const formEl = zone.closest("form");
         const appVersion = formEl?.dataset.appVersion || "";
-        const previewsEnabled = !isPhoneDevice();
-        // A phone handed 70 files at once struggles before our code even runs,
-        // so phones pick one batch at a time and add the next after it lands.
-        const pickLimit = previewsEnabled ? maxFiles : Math.min(maxFiles, batchSize);
-        const isHeic = (file) => /\.(heic|heif)$/i.test(file.name)
-            || ["image/heic", "image/heif"].includes(String(file.type).toLowerCase());
 
-        pickLog(`ready: upload script ${appVersion || "unknown"}${previewsEnabled ? "" : " · previews off (phone)"}`);
+        pickLog(`ready: upload script ${appVersion || "unknown"}`);
 
-        // Decode a 200px stand-in for the preview grid. Pointing <img> at the
-        // full-size file makes iOS Safari decode every picked photo at full
-        // resolution, which can leave the native photo picker on screen while
-        // the page is busy — the "stuck after selecting photos" symptom.
+        // Decode a 200px thumbnail for the preview grid, falling back to an
+        // object URL when the browser cannot resize while decoding.
         const smallPreview = async (file) => {
             if (typeof createImageBitmap !== "function") return null;
 
@@ -181,16 +115,12 @@
             const files = selected();
             const total = files.reduce((sum, file) => sum + file.size, 0);
 
-            if (grid && !previewsEnabled) {
+            if (grid) {
+                clearPreviewUrls();
                 grid.innerHTML = "";
-            }
 
-            if (grid && previewsEnabled) {
-                grid.innerHTML = "";
-                // Empty slots keep the order stable while the small previews
-                // decode one at a time; no full-size decode on selection.
-                // HEIC is never previewed: Safari can spend seconds decoding it.
-                const previews = files.slice(0, 6).filter((file) => !isHeic(file));
+                // Preview the first few; a 100-photo selection must stay light.
+                const previews = files.slice(0, 12);
                 const slots = previews.map(() => {
                     const img = document.createElement("img");
                     img.alt = "";
@@ -201,18 +131,17 @@
                 });
 
                 (async () => {
-                    // One at a time: six 48-megapixel photos decoded together is
-                    // what made a phone browser grind to a halt.
                     for (let index = 0; index < previews.length; index++) {
-                        const url = await smallPreview(previews[index]);
+                        let url = await smallPreview(previews[index]);
                         if (token !== previewToken) return;
 
-                        if (url) {
-                            slots[index].src = url;
-                            slots[index].className = "";
-                        } else {
-                            slots[index].remove();
+                        if (!url) {
+                            url = URL.createObjectURL(previews[index]);
+                            objectUrls.push(url);
                         }
+
+                        slots[index].src = url;
+                        slots[index].className = "";
                     }
                 })();
 
@@ -245,13 +174,13 @@
                 if (titleEl) titleEl.textContent = multi ? "Drop your photos here" : "Drop your photo here";
                 if (hintEl) {
                     hintEl.textContent = multi
-                        ? `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${pickLimit}; uploaded ${batchSize} at a time.`
+                        ? `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB each. Select up to ${maxFiles}; uploaded ${batchSize} at a time.`
                         : `or click to browse — any common photo, up to ${Math.round(maxBytes / 1048576)} MB`;
                 }
                 nameEls.forEach((element) => {
                     element.textContent = multi ? "" : "";
                 });
-                setSummary("photos", `0 of ${pickLimit}`);
+                setSummary("photos", `0 of ${maxFiles}`);
                 return;
             }
 
@@ -261,12 +190,12 @@
                 titleEl.textContent = files.length === 1 ? "Photo selected" : `${files.length} photos selected`;
             }
             if (hintEl) {
-                hintEl.textContent = `${files.length} of ${pickLimit} · ${humanSize(total)} total · uploads in ${batches} batch${batches === 1 ? "" : "es"}`;
+                hintEl.textContent = `${files.length} of ${maxFiles} · ${humanSize(total)} total · uploads in ${batches} batch${batches === 1 ? "" : "es"}`;
             }
             nameEls.forEach((element) => {
                 element.textContent = files.length === 1 ? files[0].name : `${files.length} photos selected`;
             });
-            setSummary("photos", `${files.length} of ${pickLimit}`);
+            setSummary("photos", `${files.length} of ${maxFiles}`);
         };
 
         const accept = (files, append = false) => {
@@ -291,24 +220,12 @@
             let chosen = unique;
             let trimmed = false;
 
-            if (unique.length > pickLimit) {
-                if (!previewsEnabled) {
-                    // Clearing the input releases the oversized FileList, which
-                    // is what leaves a phone unresponsive after a big pick.
-                    pickLog(`selection: ${unique.length} files is over the phone limit of ${pickLimit} — cleared`);
-                    input.value = "";
-                    selectionLimit = 0;
-                    if (formEl) formEl.dataset.selectedLimit = "";
-                    window.alert(`On a phone, choose up to ${pickLimit} photos at a time. Each batch is added to the order, then you can add the next ${pickLimit}.`);
-                    render();
-                    return;
-                }
-
-                chosen = unique.slice(0, pickLimit);
+            if (unique.length > maxFiles) {
+                chosen = unique.slice(0, maxFiles);
                 trimmed = true;
                 selectionLimit = chosen.length;
                 pickLog(`selection: using the first ${chosen.length} of ${unique.length} files`);
-                window.alert(`Only ${pickLimit} photos can be added here. The first ${pickLimit} are selected.`);
+                window.alert(`Only ${maxFiles} photos can be added here. The first ${maxFiles} are selected.`);
             }
 
             for (const file of chosen) {
@@ -322,9 +239,7 @@
                 }
             }
 
-            pickLog(`selection: ${chosen.length} file${chosen.length === 1 ? "" : "s"} accepted`
-                + (previewsEnabled ? "" : " · preview skipped (phone)")
-                + (chosen.some(isHeic) ? " · HEIC not previewed" : ""));
+            pickLog(`selection: ${chosen.length} file${chosen.length === 1 ? "" : "s"} accepted`);
 
             // Rebuilding a FileList with DataTransfer copies every file, and on
             // iOS Safari with a large selection that is where the page stops

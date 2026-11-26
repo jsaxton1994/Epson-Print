@@ -203,14 +203,6 @@ if ($uploadedNow > 0): ?>
                                 <span class="dropzone-file" data-file-name></span>
                             </label>
 
-                            <div class="pick-log-panel" data-pick-log-panel hidden>
-                                <div class="pick-log-head">
-                                    <span>Upload steps</span>
-                                    <button type="button" class="btn btn-ghost btn-sm" data-pick-copy>Copy log</button>
-                                </div>
-                                <div class="pick-log" data-pick-log aria-live="polite"></div>
-                            </div>
-
                             <div class="upload-status" data-upload-status hidden>
                                 <div class="upload-bar"><span data-upload-bar></span></div>
                                 <p class="help" data-upload-progress aria-live="polite"></p>
