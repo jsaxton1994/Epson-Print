@@ -182,7 +182,7 @@ try {
             sync_order_status($frontId, 'Cron');
 
             // Let the printer pick the job up before the first status check.
-            sleep(3);
+            sleep(2);
         }
 
         if ($sentTotal > 0) {

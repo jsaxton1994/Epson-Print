@@ -213,7 +213,7 @@ app_start(
                             <span class="choice-dot"></span>
                             <span class="choice-text">
                                 <strong>Borderless</strong>
-                                <span>Fills the sheet — the whole photo, never cut off</span>
+                                <span>Fills the 4 × 6 sheet — photos that aren't 3:2 are trimmed at the edges</span>
                             </span>
                         </label>
                         <label class="choice">

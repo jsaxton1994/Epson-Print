@@ -1,9 +1,10 @@
 <?php
 /**
- * The padded image that will be sent to the printer, for admins to check first.
+ * The photo that will be sent to the printer, for admins to check first.
  *
- * `w` returns a smaller version for the inline preview on the order page; the
- * full-size response is what Epson receives.
+ * Nothing is altered: this is the stored upload, which is exactly what Epson
+ * receives. `w` returns a smaller version for the inline preview on the order
+ * page only.
  */
 
 declare(strict_types=1);
@@ -15,9 +16,7 @@ require_admin();
 $photoId = (int) input('photo', '0');
 
 $photo = db_one(
-    'SELECT p.id, p.file_name, p.mime_type, o.paper_size, o.borderless
-     FROM order_photos p JOIN orders o ON o.id = p.order_id
-     WHERE p.id = ?',
+    'SELECT id, file_name, mime_type FROM order_photos WHERE id = ?',
     [$photoId]
 );
 
@@ -27,9 +26,7 @@ if ($photo === null) {
     exit('Photo not found.');
 }
 
-$borderless = (int) $photo['borderless'] === 1;
-$prepared   = photo_print_canvas($photo, (string) $photo['paper_size'], $borderless);
-$bytes      = $prepared ?? photo_binary($photo);
+$bytes = photo_binary($photo);
 
 if ($bytes === null) {
     http_response_code(404);
@@ -37,7 +34,7 @@ if ($bytes === null) {
     exit('Photo data is missing.');
 }
 
-$mime  = $prepared !== null ? 'image/jpeg' : order_photo_mime($photo);
+$mime  = order_photo_mime($photo);
 $width = (int) input('w', '0');
 
 if ($width > 0 && function_exists('imagecreatefromstring') && function_exists('imagescale')) {

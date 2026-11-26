@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.30';
+const APP_VERSION = '1.3.31';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -87,8 +87,10 @@ const STATUS_BATCH_SECONDS = 20;
 // Strict print sequencing. The worker sends one photo, waits for the printer
 // to report it finished, then sends the next — so sheets come out in order and
 // a second order cannot start until the first is complete.
-const PRINT_SEQUENTIAL_SECONDS = 150;
-const PRINT_POLL_SECONDS = 8;
+// A longer slice means one cron tick can print several sheets instead of
+// sending one and leaving the printer idle until the next tick.
+const PRINT_SEQUENTIAL_SECONDS = 290;
+const PRINT_POLL_SECONDS = 5;
 
 // How long the dashboard reuses a printer status before asking Epson again.
 const PRINT_STATUS_CACHE_SECONDS = 20;

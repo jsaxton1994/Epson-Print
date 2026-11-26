@@ -565,7 +565,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                 <div class="table-empty">No photos in this order yet.</div>
             <?php else: ?>
             <?php
-            // The next photo to print, as the printer will actually receive it.
+            // The next photo to print, exactly as the printer will receive it.
             $previewPhoto = null;
             foreach ($photos as $candidate) {
                 if (in_array($candidate['status'], ['pending', 'printing'], true)) {
@@ -578,12 +578,12 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                 <?php $previewUrl = url('admin/print-preview.php?photo=' . (int) $previewPhoto['id']); ?>
                 <div class="print-preview">
                     <a href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">
-                        <img src="<?= e($previewUrl . '&w=520') ?>" alt="Print preview of the padded image for <?= e($previewPhoto['file_name']) ?>" loading="lazy">
+                        <img src="<?= e($previewUrl . '&w=520') ?>" alt="Print preview for <?= e($previewPhoto['file_name']) ?>" loading="lazy">
                     </a>
                     <div>
                         <strong>Print preview: <?= e($previewPhoto['file_name']) ?></strong>
                         <p>
-                            Exactly what the printer receives: <?= e(paper_size_label($order['paper_size'])) ?><?= (int) $order['borderless'] === 1 ? ' with a soft blurred fill around the photo, so the sheet is covered edge to edge and nothing is cut off' : ', with a white border' ?>.
+                            The uploaded photo, sent to the printer unchanged on <?= e(paper_size_label($order['paper_size'])) ?> paper — no padding, blur or recompression.
                             <a class="print-preview-link" href="<?= e($previewUrl) ?>" target="_blank" rel="noopener">Open full size <?= icon('arrow-right') ?></a>
                         </p>
                     </div>
