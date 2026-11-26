@@ -301,6 +301,41 @@ if (is_post()) {
         redirect($back);
     }
 
+    if ($action === 'quality') {
+        if (in_array($order['status'], ['completed', 'cancelled'], true)) {
+            flash('error', 'The print quality cannot be changed once an order is printed or cancelled.');
+            redirect($back);
+        }
+
+        $qualityOptions = quality_options();
+        $qualityKey     = input('print_quality');
+
+        if (!array_key_exists($qualityKey, $qualityOptions)) {
+            flash('error', 'Pick one of the available print qualities.');
+            redirect($back);
+        }
+
+        if ($qualityKey === $order['print_quality']) {
+            flash('info', 'That is already the print quality for this order.');
+            redirect($back);
+        }
+
+        $qualityName = static fn (string $key): string => explode(' — ', $qualityOptions[$key] ?? ucfirst($key))[0];
+
+        db_update('orders', ['print_quality' => $qualityKey, 'updated_at' => now()], 'id = ?', [$orderId]);
+
+        log_order_event(
+            $orderId,
+            (string) $order['status'],
+            'Print quality changed from ' . $qualityName((string) $order['print_quality'])
+                . ' to ' . $qualityName($qualityKey) . ' by ' . $admin['name'] . '.',
+            (string) $admin['name']
+        );
+
+        flash('success', 'Print quality updated. Photos already sent to the printer keep their old setting; anything sent from now uses the new one.');
+        redirect($back);
+    }
+
     if ($action === 'note') {
         $note = mb_substr(input('admin_note'), 0, 500);
         db_update('orders', ['admin_note' => $note !== '' ? $note : null, 'updated_at' => now()], 'id = ?', [$orderId]);
@@ -319,7 +354,9 @@ $photos      = order_photos($orderId);
 $count       = count($photos);
 $printStarted = order_photo_print_started($orderId);
 $events      = order_events($orderId);
-$quality     = quality_options()[$order['print_quality']] ?? ucfirst((string) $order['print_quality']);
+$qualityOptions = quality_options();
+$quality     = $qualityOptions[$order['print_quality']] ?? ucfirst((string) $order['print_quality']);
+$canEditQuality = in_array($order['status'], ['pending', 'accepted', 'printing', 'failed'], true);
 $totalBytes  = array_sum(array_map(static fn (array $p): int => (int) $p['file_size'], $photos));
 $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => in_array($p['status'], ['pending', 'failed'], true)));
 $reprint     = $order['status'] === 'completed';
@@ -404,7 +441,29 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <div><dt>Print size</dt><dd><?= e(paper_size_label($order['paper_size'])) ?></dd></div>
                     <div><dt>Colour</dt><dd><?= $order['color_mode'] === 'mono' ? 'Black &amp; white' : 'Colour' ?></dd></div>
                     <div><dt>Border</dt><dd><?= (int) $order['borderless'] === 1 ? 'Borderless' : 'White border' ?></dd></div>
-                    <div><dt>Quality</dt><dd><?= e(explode(' — ', $quality)[0]) ?></dd></div>
+                    <div>
+                        <dt>Quality</dt>
+                        <dd>
+                            <?php if ($canEditQuality): ?>
+                                <form method="post" action="<?= e($back) ?>" class="inline-form">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="quality">
+                                    <label class="sr-only" for="print_quality">Print quality</label>
+                                    <select class="select" id="print_quality" name="print_quality">
+                                        <?php foreach ($qualityOptions as $value => $label): ?>
+                                            <option value="<?= e($value) ?>" <?= $order['print_quality'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button class="btn btn-soft btn-sm" type="submit">Save</button>
+                                </form>
+                                <?php if ($order['status'] === 'printing'): ?>
+                                    <span class="muted" style="font-size:.75rem">Photos already sent keep their quality.</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <?= e(explode(' — ', $quality)[0]) ?>
+                            <?php endif; ?>
+                        </dd>
+                    </div>
                     <div><dt>Total size</dt><dd><?= e(human_size($totalBytes)) ?></dd></div>
                     <div><dt>Copies</dt><dd>1 of each photo</dd></div>
                     <div><dt>Submitted</dt><dd><?= e(format_date($order['created_at'])) ?></dd></div>

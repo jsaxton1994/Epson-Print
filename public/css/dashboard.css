@@ -476,6 +476,9 @@
     word-break: break-word;
 }
 
+.detail-grid .inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.detail-grid .inline-form .select { max-width: 210px; padding: 7px 34px 7px 11px; font-size: .82rem; }
+
 .detail-note {
     margin-top: 22px;
     padding: 14px 16px;

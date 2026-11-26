@@ -158,6 +158,7 @@ Until the printer is linked, orders can still be accepted, managed and marked pr
 ## Customising
 
 - Site name, support email, default print size/quality and the queue pause switch: **Admin → Settings**.
+- An administrator can change an order's print quality from the order page while it is still unprinted (new, queued, printing or failed). The change is written to the order timeline; photos already sent to Epson keep the quality they were sent with, and everything sent afterwards uses the new one. Printed and cancelled orders keep the quality they were printed with.
 - Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 100) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
 - Per-photo upload limit: `MAX_UPLOAD_MB` in `includes/config.php` (Epson allows 10 MB for photo mode). The effective limit is the smaller of this and PHP's `upload_max_filesize` / `post_max_size`.
 - Batch and status work: `PRINT_BATCH_MAX`, `PRINT_BATCH_SECONDS`, `STATUS_BATCH_MAX` and `STATUS_BATCH_SECONDS` in `includes/config.php`.
