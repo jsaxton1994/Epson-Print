@@ -23,14 +23,6 @@ DirectoryIndex public/index.php
     Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-# The Epson notification callback is a server-to-server POST, so the host's
-# LiteSpeed CAPTCHA would answer it with a browser challenge instead of letting
-# it through. Exempt that one endpoint; it carries its own secret token.
-<IfModule LiteSpeed>
-    RewriteEngine On
-    RewriteRule epson-notify\.php - [E=verifycaptcha:off]
-</IfModule>
-
 # Never serve raw database dumps or dotfiles.
 <FilesMatch "\.(sql|sqlite|log|md)$">
     Require all denied
