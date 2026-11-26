@@ -179,6 +179,7 @@ if ($uploadedNow > 0): ?>
                         <form method="post" action="<?= e(url('customer/add-photos.php?id=' . $orderId)) ?>"
                               enctype="multipart/form-data" data-submit-once
                               data-batch-upload data-batch-size="<?= (int) $addBatchLimit ?>"
+                              data-app-version="<?= e(APP_VERSION) ?>"
                               data-order-id="<?= (int) $orderId ?>"
                               data-order-url="<?= e(url('customer/order.php?id=' . $orderId)) ?>"
                               data-add-url="<?= e(url('customer/add-photos.php')) ?>"
@@ -201,6 +202,8 @@ if ($uploadedNow > 0): ?>
                                 <span class="dropzone-list" data-photo-list></span>
                                 <span class="dropzone-file" data-file-name></span>
                             </label>
+
+                            <div class="pick-log" data-pick-log hidden aria-live="polite"></div>
 
                             <div class="upload-status" data-upload-status hidden>
                                 <div class="upload-bar"><span data-upload-bar></span></div>

@@ -139,6 +139,7 @@ app_start(
 
 <form method="post" enctype="multipart/form-data" class="order-form-layout" data-order-form data-submit-once
       data-batch-upload data-batch-size="<?= (int) $batchLimit ?>"
+      data-app-version="<?= e(APP_VERSION) ?>"
       data-add-url="<?= e(url('customer/add-photos.php')) ?>"
       data-order-url="<?= e(url('customer/order.php')) ?>"
       data-heic-decoder="<?= e(asset('js/vendor/heic2any.min.js')) ?>"
@@ -175,6 +176,8 @@ app_start(
                     <span class="dropzone-list" data-photo-list></span>
                     <span class="dropzone-file" data-file-name></span>
                 </label>
+
+                <div class="pick-log" data-pick-log hidden aria-live="polite"></div>
 
                 <p class="help">
                     Select all the photos you need — up to <?= (int) MAX_PHOTOS_PER_ORDER ?>. A large selection is uploaded

@@ -16,6 +16,28 @@
         });
     };
 
+    /* Upload step readout ------------------------------------------------ */
+    const pickLog = (message) => {
+        const stamp = new Date().toLocaleTimeString();
+
+        document.querySelectorAll("[data-pick-log]").forEach((element) => {
+            element.hidden = false;
+            const line = document.createElement("div");
+            line.textContent = `${stamp} · ${message}`;
+            element.appendChild(line);
+            while (element.children.length > 14) {
+                element.removeChild(element.firstChild);
+            }
+            element.scrollTop = element.scrollHeight;
+        });
+
+        try {
+            console.log(`[upload] ${message}`);
+        } catch (error) {
+            /* Console may be unavailable. */
+        }
+    };
+
     /* Password visibility ------------------------------------------------- */
     document.querySelectorAll("[data-toggle-password]").forEach((button) => {
         const input = button.closest(".input-wrap")?.querySelector("input");
@@ -44,6 +66,17 @@
         let previewToken = 0;
 
         if (!input) return;
+
+        const formEl = zone.closest("form");
+        const appVersion = formEl?.dataset.appVersion || "";
+        const isPhone = Boolean(navigator.userAgentData?.mobile)
+            || /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent)
+            || (window.matchMedia("(max-width: 820px)").matches && window.matchMedia("(pointer: coarse)").matches);
+        const previewsEnabled = !isPhone;
+        const isHeic = (file) => /\.(heic|heif)$/i.test(file.name)
+            || ["image/heic", "image/heif"].includes(String(file.type).toLowerCase());
+
+        pickLog(`ready: upload script ${appVersion || "unknown"}${previewsEnabled ? "" : " · previews off (phone)"}`);
 
         // Decode a 200px stand-in for the preview grid. Pointing <img> at the
         // full-size file makes iOS Safari decode every picked photo at full
@@ -90,11 +123,16 @@
             const files = selected();
             const total = files.reduce((sum, file) => sum + file.size, 0);
 
-            if (grid) {
+            if (grid && !previewsEnabled) {
+                grid.innerHTML = "";
+            }
+
+            if (grid && previewsEnabled) {
                 grid.innerHTML = "";
                 // Empty slots keep the order stable while the small previews
                 // decode one at a time; no full-size decode on selection.
-                const previews = files.slice(0, 6);
+                // HEIC is never previewed: Safari can spend seconds decoding it.
+                const previews = files.slice(0, 6).filter((file) => !isHeic(file));
                 const slots = previews.map(() => {
                     const img = document.createElement("img");
                     img.alt = "";
@@ -120,10 +158,10 @@
                     }
                 })();
 
-                if (files.length > 6) {
+                if (files.length > previews.length) {
                     const more = document.createElement("span");
                     more.className = "dropzone-more";
-                    more.textContent = `+${files.length - 6}`;
+                    more.textContent = `+${files.length - previews.length}`;
                     grid.appendChild(more);
                 }
             }
@@ -208,6 +246,10 @@
                 }
             }
 
+            pickLog(`selection: ${chosen.length} file${chosen.length === 1 ? "" : "s"} accepted`
+                + (previewsEnabled ? "" : " · preview skipped (phone)")
+                + (chosen.some(isHeic) ? " · HEIC not previewed" : ""));
+
             // Only rewrite the input when the picker's selection actually
             // changed. Re-assigning input.files inside a change handler can
             // wedge the iOS picker.
@@ -232,11 +274,18 @@
             render();
         };
 
+        input.addEventListener("click", () => pickLog("picker opened"));
+
         input.addEventListener("change", () => {
             // Snapshot now, do the work after the picker has had a chance to
             // close, so the native sheet never waits on our JS.
             const picked = Array.from(input.files || []);
-            window.setTimeout(() => accept(picked, false), 50);
+            pickLog(`picker closed: ${picked.length} file${picked.length === 1 ? "" : "s"} selected`);
+
+            window.setTimeout(() => {
+                pickLog("selection: checking files…");
+                accept(picked, false);
+            }, 50);
         });
         render();
 
@@ -653,9 +702,13 @@
             }
 
             const files = Array.from(input.files || []);
-            if (files.length === 0) return;
+            if (files.length === 0) {
+                pickLog("upload: pressed with no files selected");
+                return;
+            }
 
             event.preventDefault();
+            pickLog(`upload: starting ${files.length} file${files.length === 1 ? "" : "s"}`);
             form.dataset.uploading = "1";
             submit.disabled = true;
             submit.textContent = "Uploading…";
@@ -683,6 +736,7 @@
                 // reached, so the first photos reach the order within seconds
                 // instead of after the whole selection has been re-encoded.
                 const chunks = chunkFiles(files.slice(uploaded), batchSize, maxTotalBytes);
+                pickLog(`upload: ${chunks.length} batch${chunks.length === 1 ? "" : "es"} queued`);
 
                 for (const chunk of chunks) {
                     const chunkStart = uploaded;
@@ -697,6 +751,7 @@
                         if (converting) {
                             setRowState(rowIndex, "is-active", "Preparing…");
                             setProgress(`Preparing photo ${rowIndex + 1} of ${files.length}…`);
+                            pickLog(`prepare: converting ${file.name}`);
                             // Let the browser paint the row before the (blocking)
                             // canvas conversion starts.
                             await nextFrame();
@@ -706,6 +761,7 @@
 
                         if (converting) {
                             setRowState(rowIndex, "is-ready", "Ready");
+                            pickLog(`prepare: converted ${file.name}`);
                             await nextFrame();
                         }
                     }
@@ -755,6 +811,7 @@
                     uploaded += chunk.length;
                     form.dataset.uploaded = String(uploaded);
                     setBar(uploaded / files.length);
+                    pickLog(`upload: saved ${uploaded} of ${files.length}`);
 
                     // Put this batch straight into the order's photo list.
                     addPhotosToOrder(data.photos, data.total);
@@ -768,9 +825,12 @@
                     setProgress(`Uploaded ${uploaded} of ${files.length} photos…`);
                 }
 
+                pickLog(`upload: complete (${uploaded} saved) — reloading the order`);
+
                 const separator = orderUrl.includes("?") ? "&" : "?";
                 window.location.href = `${orderUrl}${separator}uploaded=${uploaded}`;
             } catch (error) {
+                pickLog(`error: ${error.message}`);
                 form.dataset.uploading = "0";
                 form.removeAttribute("aria-busy");
                 submit.disabled = false;
