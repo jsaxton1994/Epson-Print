@@ -23,6 +23,7 @@ $queueHealth = queue_health();
 $queueWorkerState = $queueHealth['worker_never_run']
     ? 'Never run'
     : ($queueHealth['worker_stale'] ? 'Stopped' : ($queueHealth['last_status'] === 'error' ? 'Failing' : 'Healthy'));
+$attention = orders_needing_attention();
 $queueWatchdogState = $queueHealth['watchdog_last_run'] === null
     ? 'Never run'
     : ($queueHealth['watchdog_stale'] ? 'Stale' : ($queueHealth['watchdog_status'] === 'error' ? 'Failing' : 'Healthy'));
@@ -85,6 +86,23 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 <?php endif; ?>
 
+<?php if ($attention['count'] > 0): ?>
+    <div class="banner banner-danger">
+        <?= icon('alert') ?>
+        <div>
+            <strong><?= (int) $attention['count'] ?> order<?= $attention['count'] === 1 ? ' needs' : 's need' ?> reprinting</strong>
+            <p>
+                <?= (int) $attention['photos'] ?> photo<?= $attention['photos'] === 1 ? '' : 's' ?> failed at the printer.
+                Open the order and press <strong>Retry &amp; queue</strong> to send
+                <?= $attention['photos'] === 1 ? 'it' : 'them' ?> again.
+            </p>
+            <div class="banner-actions">
+                <a class="btn btn-danger btn-sm" href="<?= e(url('admin/orders.php?status=failed')) ?>"><?= icon('printer') ?> Show failed orders</a>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if ($queueHealth['worker_never_run'] && $queueHealth['queued'] > 0): ?>
     <div class="banner banner-warn">
         <?= icon('alert') ?>
@@ -141,6 +159,40 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <p>Last check <?= e(time_ago((string) $queueHealth['watchdog_last_run'])) ?>. Queue problems may not be emailed until it runs again.</p>
         </div>
     </div>
+<?php endif; ?>
+
+<?php if ($attention['count'] > 0): ?>
+<section class="panel">
+    <div class="panel-head">
+        <div>
+            <h3>Needs attention</h3>
+            <p>Failed prints waiting for a retry, oldest first</p>
+        </div>
+        <a class="panel-link" href="<?= e(url('admin/orders.php?status=failed')) ?>">Failed orders <?= icon('arrow-right') ?></a>
+    </div>
+    <ul class="queue-list">
+        <?php foreach ($attention['orders'] as $failedOrder): ?>
+            <?php
+            $failedCount = (int) $failedOrder['failed_photos'];
+            $failedTotal = (int) $failedOrder['photo_count'];
+            ?>
+            <li class="queue-item">
+                <span class="doc-text">
+                    <span class="doc-name"><?= e($failedOrder['reference']) ?> · <?= e($failedOrder['customer']) ?></span>
+                    <span class="doc-meta">
+                        <?= $failedCount ?> of <?= $failedTotal ?> photo<?= $failedTotal === 1 ? '' : 's' ?> failed ·
+                        updated <?= e(time_ago((string) $failedOrder['updated_at'])) ?>
+                    </span>
+                    <?php if (!empty($failedOrder['error_message'])): ?>
+                        <span class="doc-meta"><?= e(mb_substr((string) $failedOrder['error_message'], 0, 120)) ?></span>
+                    <?php endif; ?>
+                </span>
+                <span class="queue-side"><?= status_badge($failedOrder['status']) ?></span>
+                <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/order.php?id=' . (int) $failedOrder['id'])) ?>">Open</a>
+            </li>
+        <?php endforeach; ?>
+    </ul>
+</section>
 <?php endif; ?>
 
 <section class="panel">

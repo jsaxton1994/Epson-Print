@@ -122,7 +122,7 @@ The watchdog emails when:
 
 Alerts go to **Admin → Settings → Queue alert email**, falling back to the support email and then the first admin account. It sends one alert per incident, repeats at most hourly while the problem continues, and sends a recovery email when the queue is healthy again.
 
-The dashboard also shows the worker state, last run, watchdog state and oldest accepted order. If both cron jobs are managed by the same cPanel account, a full cron-service outage can stop both; use an external uptime monitor for that case.
+The dashboard also shows the worker state, last run, watchdog state and oldest accepted order. When anything fails — a rejected photo, or a print the queue released as stuck — the dashboard opens with a red banner counting the orders that need reprinting, followed by a **Needs attention** list of those orders (reference, customer, failed photo count and the printer's message) with an **Open** button on each and a link to **Admin → Orders → Failed**. If both cron jobs are managed by the same cPanel account, a full cron-service outage can stop both; use an external uptime monitor for that case.
 
 Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the printer advertises it, otherwise `ps_kg` (102 × 153 mm) and finally `ps_l`. 5 × 7 uses `ps_2l`/`ps_5x8` and A4 uses `ps_a4`, always checked against the printer's advertised capabilities and falling back to a supported borderless or quality mode.
 

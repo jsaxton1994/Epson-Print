@@ -927,6 +927,8 @@
 .banner-warn p { color: #8a6415; }
 .banner-info { background: #f7f9ff; border-color: #dbe3fb; color: #33415c; }
 .banner-info p { color: #4a5a78; }
+.banner-danger { background: var(--danger-soft); border-color: #f3c3c7; color: var(--danger); }
+.banner-danger p { color: #a13340; }
 
 /* --------------------------------------------------------------------------
    Responsive

@@ -284,6 +284,38 @@ function queue_health(): array
     ];
 }
 
+/**
+ * Orders waiting on a person: a print that failed, including photos the queue
+ * released as stuck, or a photo failure that left the order marked failed.
+ *
+ * @return array{count:int,photos:int,orders:list<array<string,mixed>>}
+ */
+function orders_needing_attention(int $limit = 6): array
+{
+    $where = "o.status <> 'cancelled'
+        AND (o.status = 'failed'
+             OR EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'failed'))";
+
+    $count = (int) db_val('SELECT COUNT(*) FROM orders o WHERE ' . $where);
+
+    $orders = db_all(
+        "SELECT o.id, o.reference, o.status, o.error_message, o.updated_at, u.name AS customer,
+                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id AND p.status = 'failed') AS failed_photos,
+                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count
+         FROM orders o JOIN users u ON u.id = o.user_id
+         WHERE " . $where . "
+         ORDER BY o.updated_at ASC, o.id ASC
+         LIMIT " . max(1, $limit)
+    );
+
+    $photos = (int) db_val(
+        "SELECT COUNT(*) FROM order_photos p JOIN orders o ON o.id = p.order_id
+         WHERE p.status = 'failed' AND o.status <> 'cancelled'"
+    );
+
+    return ['count' => $count, 'photos' => $photos, 'orders' => $orders];
+}
+
 /* -------------------------------------------------------------------------
  |  Dates & formatting
  * ---------------------------------------------------------------------- */
