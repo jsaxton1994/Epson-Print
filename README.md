@@ -151,7 +151,7 @@ Until the printer is linked, orders can still be accepted, managed and marked pr
 - Every query uses prepared statements; output is escaped with `e()`.
 - Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `cron/` are blocked with `.htaccess`, and the cron worker refuses HTTP requests itself.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
-- Admin: deleting a customer or an order also deletes all of its stored photos.
+- Admin: deleting a customer or an order also deletes all of its stored photos. On the order page an admin can remove a single photo; the order status is recalculated from what is left and the removal is written to the order timeline. Removing the last photo deletes the empty order.
 
 ## Customising
 

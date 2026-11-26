@@ -208,6 +208,46 @@ if (is_post()) {
         redirect($back);
     }
 
+    if ($action === 'remove_photo') {
+        $photoId = (int) input('photo_id', '0');
+        $photo   = db_one(
+            'SELECT id, file_name FROM order_photos WHERE id = ? AND order_id = ?',
+            [$photoId, $orderId]
+        );
+
+        if ($photo === null) {
+            flash('error', 'That photo is not part of this order any more.');
+            redirect($back);
+        }
+
+        db_query('DELETE FROM order_photos WHERE id = ? AND order_id = ?', [$photoId, $orderId]);
+
+        $remaining = order_photo_count($orderId);
+
+        if ($remaining === 0) {
+            db_query('DELETE FROM orders WHERE id = ?', [$orderId]);
+            flash('success', 'Photo removed. It was the last one, so the empty order was deleted as well.');
+            redirect('admin/orders.php');
+        }
+
+        // Recompute the order from what is left, then record who removed what.
+        sync_order_status($orderId, (string) $admin['name']);
+        $currentStatus = (string) db_val('SELECT status FROM orders WHERE id = ?', [$orderId]);
+        log_order_event(
+            $orderId,
+            $currentStatus,
+            'Removed ' . $photo['file_name'] . ' from the order; ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left.',
+            (string) $admin['name']
+        );
+
+        // Removing a photo changes what is left to print, so keep the queue
+        // watchdog honest about the order still making progress.
+        db_update('orders', ['updated_at' => now()], 'id = ?', [$orderId]);
+
+        flash('success', 'Photo removed. ' . $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' left in this order.');
+        redirect($back);
+    }
+
     if ($action === 'note') {
         $note = mb_substr(input('admin_note'), 0, 500);
         db_update('orders', ['admin_note' => $note !== '' ? $note : null, 'updated_at' => now()], 'id = ?', [$orderId]);
@@ -387,7 +427,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
             <div class="panel-head">
                 <div>
                     <h3>Photos in this order</h3>
-                    <p>Each photo prints once, as its own Epson job</p>
+                    <p>Each photo prints once, as its own Epson job. Remove one to take it out of the order.</p>
                 </div>
             </div>
             <div class="table-wrap">
@@ -434,6 +474,18 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                                         </form>
                                     <?php endif; ?>
                                     <a class="btn btn-ghost btn-sm" href="<?= e(url('admin/photo.php?photo=' . (int) $photo['id'] . '&download=1')) ?>"><?= icon('download') ?></a>
+                                    <form method="post" action="<?= e($back) ?>" data-confirm="<?= e(
+                                        'Remove \'' . $photo['file_name'] . '\' from this order? The stored photo is deleted permanently.'
+                                        . ($photo['status'] === 'printing' || $photo['status'] === 'completed'
+                                            ? ' It has already been sent to the printer, so that print may still come out.'
+                                            : '')
+                                        . ' This cannot be undone.'
+                                    ) ?>">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="action" value="remove_photo">
+                                        <input type="hidden" name="photo_id" value="<?= (int) $photo['id'] ?>">
+                                        <button class="btn btn-ghost btn-sm" type="submit" aria-label="Remove <?= e($photo['file_name']) ?> from this order"><?= icon('trash') ?></button>
+                                    </form>
                                 </div>
                             </td>
                         </tr>
