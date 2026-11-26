@@ -35,6 +35,11 @@ if (is_post()) {
             redirect($back);
         }
 
+        if (order_photo_count($orderId) === 0) {
+            flash('error', 'This order has no photos, so there is nothing to print. Delete it, or ask the customer to add photos while it is still in the queue.');
+            redirect($back);
+        }
+
         accept_order_for_printing($orderId, (string) $admin['name']);
         flash('success', 'Order accepted and queued. The print-queue cron will send it to the printer automatically.');
         if (!$epson->isConnected()) {
@@ -46,6 +51,11 @@ if (is_post()) {
     if (in_array($action, ['print', 'print_photo', 'reprint'], true)) {
         if (!$epson->isConnected()) {
             flash('error', 'Connect the printer in Settings before sending jobs.');
+            redirect($back);
+        }
+
+        if (order_photo_count($orderId) === 0) {
+            flash('error', 'This order has no photos to print.');
             redirect($back);
         }
 
@@ -315,8 +325,9 @@ $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => 
 $reprint     = $order['status'] === 'completed';
 $printTotal  = $reprint ? $count : count($pendingSend);
 $printNow    = min(PRINT_BATCH_MAX, $printTotal);
-$canAccept   = in_array($order['status'], ['pending', 'failed'], true);
-$canPrint    = $epson->isConnected()
+$canAccept   = $count > 0 && in_array($order['status'], ['pending', 'failed'], true);
+$canPrint    = $count > 0
+    && $epson->isConnected()
     && $order['status'] !== 'cancelled'
     && (($pendingSend !== [] && in_array($order['status'], ['accepted', 'printing'], true))
         || $order['status'] === 'completed');
@@ -341,6 +352,16 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <div class="banner-actions">
                         <a class="btn btn-soft btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('gear') ?> Check Epson settings</a>
                     </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($count === 0): ?>
+            <div class="banner banner-warn">
+                <?= icon('alert') ?>
+                <div>
+                    <strong>This order has no photos</strong>
+                    <p>There is nothing to print until photos are added. If it is still in the queue the customer can add some, otherwise delete the order.</p>
                 </div>
             </div>
         <?php endif; ?>
@@ -465,13 +486,18 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <h3>Photos in this order</h3>
                     <p>Each photo prints once, as its own Epson job. Tick photos to take them out of the order.</p>
                 </div>
-                <form method="post" action="<?= e($back) ?>" id="remove-photos" class="table-actions"
-                      data-confirm="Remove the selected photos from this order? The stored photos are deleted permanently, and any already sent to the printer may still come out.">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="remove_photos">
-                    <button class="btn btn-danger btn-sm" type="submit"><?= icon('trash') ?> Remove selected</button>
-                </form>
+                <?php if ($count > 0): ?>
+                    <form method="post" action="<?= e($back) ?>" id="remove-photos" class="table-actions"
+                          data-confirm="Remove the selected photos from this order? The stored photos are deleted permanently, and any already sent to the printer may still come out.">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="remove_photos">
+                        <button class="btn btn-danger btn-sm" type="submit"><?= icon('trash') ?> Remove selected</button>
+                    </form>
+                <?php endif; ?>
             </div>
+            <?php if ($count === 0): ?>
+                <div class="table-empty">No photos in this order yet.</div>
+            <?php else: ?>
             <div class="table-wrap">
                 <table class="table">
                     <thead>
@@ -547,6 +573,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     </tbody>
                 </table>
             </div>
+            <?php endif; ?>
         </section>
 
         <section class="panel">

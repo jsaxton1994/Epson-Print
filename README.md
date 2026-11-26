@@ -98,6 +98,7 @@ Each run:
 - sends pending photos from up to five `accepted` orders, oldest first, within the existing print batch/time limits;
 - checks the status of Epson jobs already `printing` and marks each order `completed` automatically as soon as its last photo finishes, with no admin click;
 - releases a **stuck print**: a photo the printer has left in `printing` for more than `PRINT_JOB_STUCK_MINUTES` (45 minutes) becomes `failed` with a message saying it was stuck, so the order shows the retry banner and the same photo can be sent again with **Print** or **Retry & queue**. This also stops a job that never reports back from blocking the status checks of newer photos. The clock starts when the photo is handed to Epson (`order_photos.print_started_at`, added automatically to existing databases) and the order page shows how many minutes a printing photo has been running. An admin who does not want to wait can press **Release** on a printing photo to do the same thing by hand, then **Print** it again once the printer is ready;
+- closes any order left `accepted` or `printing` with no photos at all (for example after every photo was removed) and records why on its timeline, so an empty order cannot sit in the queue for ever;
 - claims each photo with a MySQL named lock and re-checks its status after claiming, so two cron runs or a cron run and **Send now** cannot send the same photo at once;
 - leaves accepted orders untouched while the printer is unlinked, so they start automatically once it is connected.
 
@@ -152,7 +153,7 @@ Until the printer is linked, orders can still be accepted, managed and marked pr
 - Every query uses prepared statements; output is escaped with `e()`.
 - Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `cron/` are blocked with `.htaccess`, and the cron worker refuses HTTP requests itself.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
-- Admin: deleting a customer or an order also deletes all of its stored photos. On the order page an admin can tick one or more photos and remove them together; the order status is recalculated from what is left and the removal is written to the order timeline. Removing the last photo deletes the empty order.
+- Admin: deleting a customer or an order also deletes all of its stored photos. On the order page an admin can tick one or more photos and remove them together; the order status is recalculated from what is left and the removal is written to the order timeline. Removing the last photo deletes the empty order. An order that has no photos shows an empty state on both the admin and customer pages, cannot be accepted or sent to the printer, and the customer can still add photos to it while it is `pending`.
 
 ## Customising
 

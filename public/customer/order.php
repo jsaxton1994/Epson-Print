@@ -105,6 +105,15 @@ if ($uploadedNow > 0): ?>
                     </div>
                 <?php endif; ?>
 
+                <?php if ($count === 0): ?>
+                    <div class="empty-state mt-3">
+                        <span class="empty-icon"><?= icon('image') ?></span>
+                        <h3>No photos in this order</h3>
+                        <p><?= $order['status'] === 'pending'
+                            ? 'Add photos below to send this order to the printer.'
+                            : 'There is nothing to print in this order.' ?></p>
+                    </div>
+                <?php else: ?>
                 <div class="photo-gallery mt-3">
                     <?php foreach ($photos as $index => $photo): ?>
                         <figure>
@@ -119,6 +128,7 @@ if ($uploadedNow > 0): ?>
                         </figure>
                     <?php endforeach; ?>
                 </div>
+                <?php endif; ?>
 
                 <dl class="detail-grid" style="margin-top:24px">
                     <div><dt>Photos</dt><dd><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?></dd></div>
@@ -219,6 +229,9 @@ if ($uploadedNow > 0): ?>
 
         <section class="panel">
             <div class="panel-head"><h3>Photo details</h3></div>
+            <?php if ($count === 0): ?>
+                <div class="table-empty">No photos in this order yet.</div>
+            <?php else: ?>
             <div class="table-wrap">
                 <table class="table">
                     <thead>
@@ -254,6 +267,7 @@ if ($uploadedNow > 0): ?>
                     </tbody>
                 </table>
             </div>
+            <?php endif; ?>
         </section>
 
         <section class="panel">

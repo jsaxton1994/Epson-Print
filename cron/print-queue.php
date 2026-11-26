@@ -233,6 +233,28 @@ try {
         $messages[] = count($stuck) . ' stuck photo' . (count($stuck) === 1 ? ' was' : 's were')
             . ' released after ' . PRINT_JOB_STUCK_MINUTES . ' minutes for a retry.';
     }
+
+    // An order accepted with no photos can never print. Close it instead of
+    // leaving an empty job in the queue for ever.
+    $emptyOrders = db_all(
+        "SELECT o.id
+         FROM orders o
+         WHERE o.status IN ('accepted', 'printing')
+           AND NOT EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id)"
+    );
+
+    foreach ($emptyOrders as $emptyOrder) {
+        update_order_status(
+            (int) $emptyOrder['id'],
+            'cancelled',
+            'Cancelled automatically: the order has no photos to print.',
+            'Cron'
+        );
+    }
+
+    if ($emptyOrders !== []) {
+        $messages[] = count($emptyOrders) . ' empty order' . (count($emptyOrders) === 1 ? '' : 's') . ' closed.';
+    }
 } catch (Throwable $e) {
     $exitCode = 1;
     $errors[] = $e->getMessage();
