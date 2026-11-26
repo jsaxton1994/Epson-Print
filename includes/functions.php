@@ -1022,6 +1022,128 @@ function photo_binary(array $photo): ?string
 }
 
 /**
+ * Paper shape as long side ÷ short side, e.g. 4 × 6 in → 1.5.
+ */
+function paper_aspect_ratio(string $paperSize): float
+{
+    return match ($paperSize) {
+        '5x7'   => 7 / 5,
+        'a4'    => 297 / 210,
+        default => 6 / 4,
+    };
+}
+
+/**
+ * Photo bytes padded to the paper's shape so the printer never crops.
+ *
+ * Epson fills the sheet in photo mode: when the photo's shape differs from the
+ * paper it enlarges the image and trims the overflow. Placing the photo on a
+ * canvas of exactly the paper's shape (white where the photo is shorter) means
+ * the whole photo fits on the sheet, portrait or landscape, whatever the paper.
+ *
+ * Returns null when the bytes are already the right shape or GD cannot decode
+ * them, in which case the original file is printed unchanged.
+ */
+function photo_print_canvas(array $photo, string $paperSize): ?string
+{
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
+        return null;
+    }
+
+    $data = photo_binary($photo);
+
+    if ($data === null) {
+        return null;
+    }
+
+    $info = @getimagesizefromstring($data);
+
+    if (!is_array($info) || (int) $info[0] < 1 || (int) $info[1] < 1) {
+        return null;
+    }
+
+    $width  = (int) $info[0];
+    $height = (int) $info[1];
+
+    // Decoding is memory hungry; leave very large files alone rather than risk
+    // exhausting the request.
+    if ($width * $height > 20_000_000) {
+        return null;
+    }
+
+    $ratio  = paper_aspect_ratio($paperSize);
+    $aspect = $width >= $height ? $width / $height : $height / $width;
+
+    if (abs($aspect - $ratio) < 0.005) {
+        return null; // Already the paper's shape, so printing it as-is loses nothing.
+    }
+
+    // Canvas in the photo's own orientation, matching the paper's shape.
+    if ($width >= $height) {
+        $canvasWidth  = $width;
+        $canvasHeight = (int) round($width / $ratio);
+
+        if ($canvasHeight < $height) {
+            $canvasHeight = $height;
+            $canvasWidth  = (int) round($height * $ratio);
+        }
+    } else {
+        $canvasHeight = $height;
+        $canvasWidth  = (int) round($height / $ratio);
+
+        if ($canvasWidth < $width) {
+            $canvasWidth  = $width;
+            $canvasHeight = (int) round($width * $ratio);
+        }
+    }
+
+    // Cap the printable size: 3000 px on the long edge is ~500 ppi on 6 in.
+    $scale = min(1, 3000 / max($canvasWidth, $canvasHeight));
+
+    $canvasWidth  = max(1, (int) round($canvasWidth * $scale));
+    $canvasHeight = max(1, (int) round($canvasHeight * $scale));
+    $drawWidth    = max(1, (int) round($width * $scale));
+    $drawHeight   = max(1, (int) round($height * $scale));
+
+    $image = @imagecreatefromstring($data);
+
+    if ($image === false) {
+        return null;
+    }
+
+    $canvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+
+    if ($canvas === false) {
+        imagedestroy($image);
+
+        return null;
+    }
+
+    imagefill($canvas, 0, 0, imagecolorallocate($canvas, 255, 255, 255));
+    imagecopyresampled(
+        $canvas,
+        $image,
+        (int) round(($canvasWidth - $drawWidth) / 2),
+        (int) round(($canvasHeight - $drawHeight) / 2),
+        0,
+        0,
+        $drawWidth,
+        $drawHeight,
+        $width,
+        $height
+    );
+
+    ob_start();
+    $ok   = imagejpeg($canvas, null, 92);
+    $jpeg = ob_get_clean();
+
+    imagedestroy($canvas);
+    imagedestroy($image);
+
+    return $ok && is_string($jpeg) && $jpeg !== '' ? $jpeg : null;
+}
+
+/**
  * Generated thumbnail bytes for a photo, if one was stored.
  */
 function photo_thumbnail(array $photo): ?string

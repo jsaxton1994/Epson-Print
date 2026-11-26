@@ -142,13 +142,18 @@ final class EpsonClient
      */
     public function printPhoto(array $order, array $photo): array
     {
-        $bytes = photo_binary($photo);
+        // Pad the photo to the paper's shape first: Epson otherwise enlarges the
+        // image to fill the sheet and trims whatever hangs over the edge.
+        $printBytes = photo_print_canvas($photo, (string) ($order['paper_size'] ?? '4x6'));
+        $bytes      = $printBytes ?? photo_binary($photo);
+
         if ($bytes === null) {
             throw new EpsonException('A photo for this order is missing from the database.');
         }
 
-        $extension = strtolower(pathinfo((string) ($photo['file_name'] ?? ''), PATHINFO_EXTENSION));
-        $extension = $extension === 'png' ? 'png' : 'jpg';
+        $extension = $printBytes !== null
+            ? 'jpg'
+            : (strtolower(pathinfo((string) ($photo['file_name'] ?? ''), PATHINFO_EXTENSION)) === 'png' ? 'png' : 'jpg');
 
         $jobName = 'PrintFree-' . preg_replace('/[^A-Za-z0-9\-]/', '', (string) $order['reference'])
             . '-P' . max(1, (int) ($photo['position'] ?? 1));

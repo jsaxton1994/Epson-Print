@@ -90,6 +90,8 @@ The order status is derived from its photos:
 
 Epson's upload endpoint accepts a single file per job (`File=1.jpg`), so a multi-photo order is sent as several jobs, one after another. Because each photo is its own job, Epson's printable-file limit no longer caps the order size. Each photo records when it was sent to the printer, and the order page shows that elapsed time next to any photo still marked `printing`, so a slow job stands out from a stuck one.
 
+Before upload, each photo is placed on a canvas of exactly the paper's shape (`photo_print_canvas()`), white where the photo is shorter. Epson's photo mode enlarges the image to fill the sheet and trims whatever hangs over the edge, which cut the top and bottom off 4:3 phone photos on 4 × 6 paper. With the padded canvas the whole photo fits the sheet, in portrait or landscape. Photos that already match the paper, files GD cannot decode and images over 20 megapixels are sent unchanged.
+
 ## Automatic print queue (cron)
 
 Accepted orders are printed without another click. Add this command to a cPanel cron job running **every minute**:

@@ -213,7 +213,7 @@ app_start(
                             <span class="choice-dot"></span>
                             <span class="choice-text">
                                 <strong>Borderless</strong>
-                                <span>Full bleed photo print</span>
+                                <span>Fills the sheet — the whole photo, never cut off</span>
                             </span>
                         </label>
                         <label class="choice">
