@@ -98,6 +98,24 @@ if (is_post()) {
         redirect('admin/settings.php');
     }
 
+    if ($action === 'notify_check') {
+        if (!$epson->isConnected()) {
+            flash('error', 'Link the printer first.');
+            redirect('admin/settings.php');
+        }
+
+        $epson->bypassCircuit = true;
+
+        try {
+            $info = $epson->notificationSettings();
+            flash('info', 'Epson reports: ' . json_encode($info, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        } catch (EpsonException $e) {
+            flash('error', 'Could not read the notification setting: ' . $e->getMessage());
+        }
+
+        redirect('admin/settings.php');
+    }
+
     if (in_array($action, ['notify_enable', 'notify_disable', 'notify_reset'], true)) {
         if (!$epson->isConnected()) {
             flash('error', 'Link the printer before changing job notifications.');
@@ -403,6 +421,11 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                     <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap">
                         <?php if ($epsonFresh->isConnected()): ?>
                             <?php if (epson_notifications_enabled()): ?>
+                                <form method="post">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="notify_check">
+                                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('eye') ?> Check registration</button>
+                                </form>
                                 <form method="post">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="action" value="notify_reset">
