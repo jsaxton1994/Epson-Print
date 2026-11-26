@@ -488,44 +488,55 @@ function order_photo_count(int $orderId): int
 }
 
 /**
- * Timestamp support for stuck-print detection.
+ * Add an optional DATETIME column to an existing database, once.
  *
- * `order_photos.print_started_at` ships in the schema for new installs and is
- * added with an ALTER on existing ones the first time it is needed. If the
- * ALTER is refused, stuck detection is simply switched off: sending photos and
- * rendering pages keep working because the column is never part of the main
- * photo listing.
+ * New installs get the column from the schema; older ones are upgraded the
+ * first time a feature needs it, guarded by a settings flag. A refused ALTER
+ * only turns that feature off — pages and the print worker keep working.
  */
-function print_started_column_ready(): bool
+function schema_column_ready(string $table, string $column, string $after, string $flag): bool
 {
-    static $ready = null;
+    static $cache = [];
 
-    if ($ready !== null) {
-        return $ready;
+    $key = $table . '.' . $column;
+
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
     }
 
-    if (setting('schema_print_started_at') === 'ready') {
-        return $ready = true;
+    if (setting($flag) === 'ready') {
+        return $cache[$key] = true;
     }
 
     try {
         $exists = (int) db_val(
             "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_photos' AND COLUMN_NAME = 'print_started_at'"
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+            [$table, $column]
         );
 
         if ($exists === 0) {
-            db()->exec('ALTER TABLE order_photos ADD COLUMN print_started_at DATETIME DEFAULT NULL AFTER printed_at');
+            db()->exec(
+                'ALTER TABLE `' . $table . '` ADD COLUMN `' . $column . '` DATETIME DEFAULT NULL AFTER `' . $after . '`'
+            );
         }
 
-        set_setting('schema_print_started_at', 'ready');
+        set_setting($flag, 'ready');
 
-        return $ready = true;
+        return $cache[$key] = true;
     } catch (Throwable $e) {
-        error_log('[PrintFree] Could not add order_photos.print_started_at: ' . $e->getMessage());
+        error_log('[PrintFree] Could not add ' . $key . ': ' . $e->getMessage());
 
-        return $ready = false;
+        return $cache[$key] = false;
     }
+}
+
+/**
+ * Timestamp support for stuck-print detection.
+ */
+function print_started_column_ready(): bool
+{
+    return schema_column_ready('order_photos', 'print_started_at', 'printed_at', 'schema_print_started_at');
 }
 
 /**
@@ -537,34 +548,7 @@ function print_started_column_ready(): bool
  */
 function accepted_at_column_ready(): bool
 {
-    static $ready = null;
-
-    if ($ready !== null) {
-        return $ready;
-    }
-
-    if (setting('schema_orders_accepted_at') === 'ready') {
-        return $ready = true;
-    }
-
-    try {
-        $exists = (int) db_val(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'accepted_at'"
-        );
-
-        if ($exists === 0) {
-            db()->exec('ALTER TABLE orders ADD COLUMN accepted_at DATETIME DEFAULT NULL AFTER updated_at');
-        }
-
-        set_setting('schema_orders_accepted_at', 'ready');
-
-        return $ready = true;
-    } catch (Throwable $e) {
-        error_log('[PrintFree] Could not add orders.accepted_at: ' . $e->getMessage());
-
-        return $ready = false;
-    }
+    return schema_column_ready('orders', 'accepted_at', 'updated_at', 'schema_orders_accepted_at');
 }
 
 /**

@@ -118,14 +118,12 @@ if (is_post()) {
 
         // One photo per click. Several jobs at once would sit on the printer
         // together and could print out of order or mixed with another order.
-        @set_time_limit(PRINT_BATCH_SECONDS + EPSON_TIMEOUT + 5);
+        @set_time_limit((2 * EPSON_TIMEOUT) + 5);
 
-        $batch     = array_slice($toSend, 0, 1);
-        $sent      = 0;
-        $failed    = 0;
-        $skipped   = 0;
-        $errors    = [];
-        $startedAt = microtime(true);
+        $sent    = 0;
+        $failed  = 0;
+        $skipped = 0;
+        $errors  = [];
 
         // A single-photo reprint may target a completed or cancelled photo;
         // never target one that is already printing.
@@ -133,23 +131,18 @@ if (is_post()) {
             ? ['pending', 'failed', 'completed', 'cancelled']
             : ['pending', 'failed'];
 
-        foreach ($batch as $index => $photo) {
-            if ($index > 0 && (microtime(true) - $startedAt) >= PRINT_BATCH_SECONDS) {
-                break;
-            }
+        $result = send_photo_to_printer($epson, $order, $toSend[0], $allowedStatuses);
 
-            $result = send_photo_to_printer($epson, $order, $photo, $allowedStatuses);
-            if (!empty($result['skipped'])) {
-                $skipped++;
-            } elseif ($result['ok']) {
-                $sent++;
-            } else {
-                $failed++;
-                $errors[] = $result['error'];
-            }
+        if (!empty($result['skipped'])) {
+            $skipped = 1;
+        } elseif ($result['ok']) {
+            $sent = 1;
+        } else {
+            $failed = 1;
+            $errors[] = $result['error'];
         }
 
-        $remaining = max(0, count($toSend) - $sent - $failed - $skipped);
+        $remaining = max(0, count($toSend) - $sent);
 
         sync_order_status($orderId, (string) $admin['name']);
 
@@ -378,7 +371,6 @@ $totalBytes  = array_sum(array_map(static fn (array $p): int => (int) $p['file_s
 $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => in_array($p['status'], ['pending', 'failed'], true)));
 $reprint     = $order['status'] === 'completed';
 $printTotal  = $reprint ? $count : count($pendingSend);
-$printNow    = min(1, $printTotal);
 $canAccept   = $count > 0 && in_array($order['status'], ['pending', 'failed'], true);
 $canPrint    = $count > 0
     && $epson->isConnected()

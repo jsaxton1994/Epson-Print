@@ -101,7 +101,7 @@ try {
             $frontRef = (string) $frontOrder['reference'];
 
             $printing = db_one(
-                "SELECT p.*
+                "SELECT p.id, p.order_id, p.status, p.epson_job_id
                  FROM order_photos p
                  JOIN orders o ON o.id = p.order_id
                  WHERE p.status = 'printing'
@@ -197,7 +197,7 @@ try {
         }
 
         $jobs = db_all(
-            'SELECT p.*
+            'SELECT p.id, p.order_id, p.status, p.epson_job_id
              FROM order_photos p
              JOIN orders o ON o.id = p.order_id
              WHERE p.status = \'printing\'
