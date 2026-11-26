@@ -61,14 +61,42 @@ try {
         }
     } else {
         $sendDeadline = microtime(true) + PRINT_BATCH_SECONDS;
+
+        // Strictly one order at a time: only the oldest order that still has
+        // photos to print (pending) or on the printer (printing) is served.
+        // A newer order's photos are not submitted until every photo of the
+        // order ahead of it is completed or has failed.
         $orders = db_all(
             "SELECT o.*
              FROM orders o
-             WHERE o.status = 'accepted'
-               AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')
+             WHERE o.status IN ('accepted', 'printing')
+               AND EXISTS (
+                   SELECT 1 FROM order_photos p
+                   WHERE p.order_id = o.id AND p.status IN ('pending', 'printing')
+               )
              ORDER BY o.id ASC
-             LIMIT 5"
+             LIMIT 1"
         );
+
+        if ($orders !== []) {
+            $frontOrder = $orders[0];
+
+            if ($frontOrder['status'] === 'printing') {
+                $waiting = (int) db_val(
+                    "SELECT COUNT(*) FROM orders o
+                     WHERE o.status = 'accepted'
+                       AND o.id <> ?
+                       AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')",
+                    [(int) $frontOrder['id']]
+                );
+
+                if ($waiting > 0) {
+                    $messages[] = $frontOrder['reference'] . ' is still printing; '
+                        . $waiting . ' other order' . ($waiting === 1 ? '' : 's')
+                        . ' held back until it finishes.';
+                }
+            }
+        }
 
         $sentTotal    = 0;
         $failedTotal  = 0;
