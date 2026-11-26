@@ -94,11 +94,41 @@ try {
     );
 
     if (is_ajax_upload()) {
+        // Details of just the photos added by this batch, so the order page can
+        // drop them straight into its photo list while the rest uploads.
+        $addedPhotos = [];
+
+        if ($inserted !== []) {
+            $placeholders = implode(', ', array_fill(0, count($inserted), '?'));
+            $rows = db_all(
+                'SELECT ' . order_photo_columns() . ' FROM order_photos
+                 WHERE id IN (' . $placeholders . ') ORDER BY position ASC, id ASC',
+                $inserted
+            );
+
+            foreach ($rows as $row) {
+                $addedPhotos[] = [
+                    'id'       => (int) $row['id'],
+                    'name'     => (string) $row['file_name'],
+                    'size'     => (int) $row['file_size'],
+                    'width'    => (int) $row['image_width'],
+                    'height'   => (int) $row['image_height'],
+                    'file'     => order_photo_mime($row) === 'image/png' ? 'PNG' : 'JPG',
+                    'position' => (int) $row['position'],
+                    'thumb'    => url('customer/photo.php?photo=' . (int) $row['id'] . '&thumb=1'),
+                    'view'     => url('customer/photo.php?photo=' . (int) $row['id']),
+                    'download' => url('customer/photo.php?photo=' . (int) $row['id'] . '&download=1'),
+                    'badge'    => status_badge((string) $row['status']),
+                ];
+            }
+        }
+
         upload_json([
             'ok'       => true,
             'order_id' => (int) $order['id'],
             'added'    => $added,
             'total'    => $total,
+            'photos'   => $addedPhotos,
         ]);
     }
 

@@ -83,7 +83,7 @@ if ($uploadedNow > 0): ?>
             <div class="panel-body">
                 <div class="detail-head">
                     <div>
-                        <h2><?= $count ?> photo<?= $count === 1 ? '' : 's' ?></h2>
+                        <h2><span data-order-count><?= $count ?></span> photo<span data-order-count-suffix><?= $count === 1 ? '' : 's' ?></span></h2>
                         <div class="detail-sub">
                             <span class="mono"><?= e($order['reference']) ?></span>
                             <?= status_badge($order['status']) ?>
@@ -105,16 +105,15 @@ if ($uploadedNow > 0): ?>
                     </div>
                 <?php endif; ?>
 
-                <?php if ($count === 0): ?>
-                    <div class="empty-state mt-3">
-                        <span class="empty-icon"><?= icon('image') ?></span>
-                        <h3>No photos in this order</h3>
-                        <p><?= $order['status'] === 'pending'
-                            ? 'Add photos below to send this order to the printer.'
-                            : 'There is nothing to print in this order.' ?></p>
-                    </div>
-                <?php else: ?>
-                <div class="photo-gallery mt-3">
+                <div class="empty-state mt-3" data-empty-photos <?= $count > 0 ? 'hidden' : '' ?>>
+                    <span class="empty-icon"><?= icon('image') ?></span>
+                    <h3>No photos in this order</h3>
+                    <p><?= $order['status'] === 'pending'
+                        ? 'Add photos below to send this order to the printer.'
+                        : 'There is nothing to print in this order.' ?></p>
+                </div>
+
+                <div class="photo-gallery mt-3" data-order-gallery <?= $count === 0 ? 'hidden' : '' ?>>
                     <?php foreach ($photos as $index => $photo): ?>
                         <figure>
                             <a href="<?= e(url('customer/photo.php?photo=' . (int) $photo['id'])) ?>" target="_blank" rel="noopener">
@@ -128,10 +127,9 @@ if ($uploadedNow > 0): ?>
                         </figure>
                     <?php endforeach; ?>
                 </div>
-                <?php endif; ?>
 
                 <dl class="detail-grid" style="margin-top:24px">
-                    <div><dt>Photos</dt><dd><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?></dd></div>
+                    <div><dt>Photos</dt><dd><span data-order-count><?= $count ?></span> of <?= (int) MAX_PHOTOS_PER_ORDER ?></dd></div>
                     <div><dt>Print size</dt><dd><?= e(paper_size_label($order['paper_size'])) ?></dd></div>
                     <div><dt>Colour</dt><dd><?= $order['color_mode'] === 'mono' ? 'Black &amp; white' : 'Colour' ?></dd></div>
                     <div><dt>Border</dt><dd><?= (int) $order['borderless'] === 1 ? 'Borderless' : 'White border' ?></dd></div>
@@ -173,7 +171,7 @@ if ($uploadedNow > 0): ?>
                 <div class="panel-head">
                     <div>
                         <h3>Add more photos</h3>
-                        <p><?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in this order · uploaded <?= (int) $addBatchLimit ?> at a time</p>
+                        <p><span data-order-count><?= $count ?></span> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos in this order · uploaded <?= (int) $addBatchLimit ?> at a time</p>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -204,19 +202,19 @@ if ($uploadedNow > 0): ?>
                                 <span class="dropzone-file" data-file-name></span>
                             </label>
 
-                            <p class="help">
-                                <?= $remainingPhotos ?> photo<?= $remainingPhotos === 1 ? '' : 's' ?> left in this order.
-                                A large selection is uploaded automatically in batches of <?= (int) $addBatchLimit ?>.
-                                <?php if ($storageCap > 0): ?>
-                                    Storage used: <?= e(human_size($totalKb)) ?> of <?= e(human_size($storageCap)) ?>.
-                                <?php endif; ?>
-                            </p>
-
                             <div class="upload-status" data-upload-status hidden>
                                 <div class="upload-bar"><span data-upload-bar></span></div>
                                 <p class="help" data-upload-progress aria-live="polite"></p>
                                 <ol class="upload-list" data-upload-list></ol>
                             </div>
+
+                            <p class="help">
+                                <?= $remainingPhotos ?> photo<?= $remainingPhotos === 1 ? '' : 's' ?> left in this order.
+                                A large selection is uploaded automatically in batches of <?= (int) $addBatchLimit ?>.
+                                <?php if ($storageCap > 0): ?>
+                                    Storage used: <span data-order-storage data-bytes="<?= (int) $totalKb ?>"><?= e(human_size($totalKb)) ?></span> of <?= e(human_size($storageCap)) ?>.
+                                <?php endif; ?>
+                            </p>
 
                             <button class="btn btn-primary" type="submit"><?= icon('plus') ?> Add photos</button>
                         </form>
@@ -233,10 +231,8 @@ if ($uploadedNow > 0): ?>
 
         <section class="panel">
             <div class="panel-head"><h3>Photo details</h3></div>
-            <?php if ($count === 0): ?>
-                <div class="table-empty">No photos in this order yet.</div>
-            <?php else: ?>
-            <div class="table-wrap">
+            <div class="table-empty" data-empty-photos <?= $count > 0 ? 'hidden' : '' ?>>No photos in this order yet.</div>
+            <div class="table-wrap" data-photo-table <?= $count === 0 ? 'hidden' : '' ?>>
                 <table class="table">
                     <thead>
                     <tr>
@@ -247,7 +243,7 @@ if ($uploadedNow > 0): ?>
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody data-photo-rows>
                     <?php foreach ($photos as $index => $photo): ?>
                         <tr>
                             <td>
@@ -271,7 +267,6 @@ if ($uploadedNow > 0): ?>
                     </tbody>
                 </table>
             </div>
-            <?php endif; ?>
         </section>
 
         <section class="panel">

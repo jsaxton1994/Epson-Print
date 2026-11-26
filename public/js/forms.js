@@ -382,6 +382,114 @@
         return chunks;
     };
 
+    /* Photos added live to the order page ---------------------------------- */
+    const addPhotosToOrder = (photos, total) => {
+        if (!Array.isArray(photos) || photos.length === 0) return;
+
+        const gallery = document.querySelector("[data-order-gallery]");
+        const rows = document.querySelector("[data-photo-rows]");
+
+        photos.forEach((photo) => {
+            if (gallery) {
+                const figure = document.createElement("figure");
+                const link = document.createElement("a");
+                link.href = photo.view;
+                link.target = "_blank";
+                link.rel = "noopener";
+
+                const img = document.createElement("img");
+                img.src = photo.thumb;
+                img.alt = photo.name;
+                img.loading = "lazy";
+                link.appendChild(img);
+
+                const caption = document.createElement("figcaption");
+                const name = document.createElement("span");
+                name.className = "pg-name";
+                name.textContent = `${photo.position}. ${photo.name}`;
+                caption.appendChild(name);
+                if (photo.badge) caption.insertAdjacentHTML("beforeend", photo.badge);
+
+                figure.append(link, caption);
+                gallery.appendChild(figure);
+                gallery.hidden = false;
+            }
+
+            if (rows) {
+                const row = document.createElement("tr");
+
+                const photoCell = document.createElement("td");
+                const cell = document.createElement("div");
+                cell.className = "doc-cell";
+
+                const thumb = document.createElement("img");
+                thumb.className = "thumb";
+                thumb.src = photo.thumb;
+                thumb.alt = "";
+                thumb.width = 42;
+                thumb.height = 42;
+                thumb.loading = "lazy";
+
+                const text = document.createElement("span");
+                text.className = "doc-text";
+                const docName = document.createElement("span");
+                docName.className = "doc-name";
+                docName.textContent = `${photo.position}. ${photo.name}`;
+                const docMeta = document.createElement("span");
+                docMeta.className = "doc-meta";
+                docMeta.textContent = `${photo.width} × ${photo.height} px`;
+                text.append(docName, docMeta);
+                cell.append(thumb, text);
+                photoCell.appendChild(cell);
+
+                const sizeCell = document.createElement("td");
+                sizeCell.className = "nowrap muted";
+                sizeCell.textContent = humanSize(photo.size);
+
+                const fileCell = document.createElement("td");
+                fileCell.className = "nowrap muted";
+                fileCell.textContent = photo.file;
+
+                const statusCell = document.createElement("td");
+                if (photo.badge) statusCell.innerHTML = photo.badge;
+
+                const actionCell = document.createElement("td");
+                actionCell.className = "cell-actions";
+                const save = document.createElement("a");
+                save.className = "btn btn-ghost btn-sm";
+                save.href = photo.download;
+                save.textContent = "Save";
+                actionCell.appendChild(save);
+
+                row.append(photoCell, sizeCell, fileCell, statusCell, actionCell);
+                rows.appendChild(row);
+
+                const table = document.querySelector("[data-photo-table]");
+                if (table) table.hidden = false;
+
+                const storage = document.querySelector("[data-order-storage]");
+                if (storage) {
+                    const bytes = Number(storage.dataset.bytes || "0") + Number(photo.size || 0);
+                    storage.dataset.bytes = String(bytes);
+                    storage.textContent = humanSize(bytes);
+                }
+            }
+        });
+
+        document.querySelectorAll("[data-empty-photos]").forEach((element) => {
+            element.hidden = true;
+        });
+
+        if (Number(total) > 0) {
+            document.querySelectorAll("[data-order-count]").forEach((element) => {
+                element.textContent = String(total);
+            });
+            document.querySelectorAll("[data-order-count-suffix]").forEach((element) => {
+                element.textContent = Number(total) === 1 ? "" : "s";
+            });
+        }
+    };
+
     document.querySelectorAll("[data-batch-upload]").forEach((form) => {
         const input = form.querySelector('input[type="file"][name="photos[]"]');
         const submit = form.querySelector('[type="submit"]');
@@ -500,39 +608,48 @@
             // looking frozen until the last batch lands.
             showRows(files, uploaded);
             setBar(uploaded / files.length);
+
+            // Bring the live list into view; on a phone the upload can start
+            // while the button the user tapped is still at the bottom.
+            if (statusPanel && !statusPanel.hidden) {
+                statusPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
             let endpoint = form.action;
             let orderId = form.dataset.orderId || "";
             let orderUrl = form.dataset.orderUrl || window.location.pathname;
 
             try {
-                // HEIC/TIFF first: use the browser decoder where it exists so the
-                // server receives a JPEG it can definitely print.
-                const remaining = files.slice(uploaded);
-                const prepared = [];
-                for (let index = 0; index < remaining.length; index++) {
-                    const rowIndex = uploaded + index;
-                    const file = remaining[index];
-                    const converting = isHeicFile(file) || isTiffFile(file);
-
-                    if (converting) {
-                        setRowState(rowIndex, "is-active", "Preparing…");
-                        setProgress(`Preparing photo ${index + 1} of ${remaining.length}…`);
-                        // Let the browser paint the row before the (blocking)
-                        // canvas conversion of a HEIC/TIFF photo starts.
-                        await nextFrame();
-                    }
-
-                    prepared.push(await prepareForUpload(file, heicDecoder, tiffDecoder));
-
-                    if (converting) setRowState(rowIndex, "is-ready", "Ready");
-                    if (converting) await nextFrame();
-                }
-
-                const chunks = chunkFiles(prepared, batchSize, maxTotalBytes);
+                // Send batch by batch, converting HEIC/TIFF only as each batch is
+                // reached, so the first photos reach the order within seconds
+                // instead of after the whole selection has been re-encoded.
+                const chunks = chunkFiles(files.slice(uploaded), batchSize, maxTotalBytes);
 
                 for (const chunk of chunks) {
                     const chunkStart = uploaded;
                     const label = `photos ${chunkStart + 1}–${chunkStart + chunk.length} of ${files.length}`;
+
+                    const prepared = [];
+                    for (let index = 0; index < chunk.length; index++) {
+                        const rowIndex = chunkStart + index;
+                        const file = chunk[index];
+                        const converting = isHeicFile(file) || isTiffFile(file);
+
+                        if (converting) {
+                            setRowState(rowIndex, "is-active", "Preparing…");
+                            setProgress(`Preparing photo ${rowIndex + 1} of ${files.length}…`);
+                            // Let the browser paint the row before the (blocking)
+                            // canvas conversion starts.
+                            await nextFrame();
+                        }
+
+                        prepared.push(await prepareForUpload(file, heicDecoder, tiffDecoder));
+
+                        if (converting) {
+                            setRowState(rowIndex, "is-ready", "Ready");
+                            await nextFrame();
+                        }
+                    }
+
                     setProgress(`Uploading ${label}…`);
 
                     for (let index = 0; index < chunk.length; index++) {
@@ -572,6 +689,9 @@
                     uploaded += chunk.length;
                     form.dataset.uploaded = String(uploaded);
                     setBar(uploaded / files.length);
+
+                    // Put this batch straight into the order's photo list.
+                    addPhotosToOrder(data.photos, data.total);
 
                     if (!orderId && data.order_id) {
                         orderId = String(data.order_id);

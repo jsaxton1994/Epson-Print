@@ -59,6 +59,8 @@ While an order is still `pending`, the customer can add more photos from the ord
 
 While a selection uploads, the page shows a progress bar and a live row per photo (**Waiting**, **Preparing…** for HEIC/TIFF, **Uploading…**, **Added**, or **Not added**) so the whole selection is visible from the first request instead of appearing to hang until the last batch finishes. Uploads go through `XMLHttpRequest` to report byte progress, and HEIC/TIFF conversions yield to the browser between photos so the page keeps painting.
 
+Each batch is prepared and sent as it is reached rather than converting the whole selection first, and on the order page every saved batch is inserted into the gallery, the **Photo details** table, the photo count and the storage figure straight away (the JSON response carries the new rows). So the order visibly fills up while later photos are still uploading.
+
 ```
 orders        reference, user_id, paper_size, borderless, color_mode,
               print_quality, notes, admin_note, status, error_message, …

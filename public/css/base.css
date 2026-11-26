@@ -821,6 +821,14 @@ hr {
 }
 
 .upload-list li.is-active .upload-state { color: var(--brand); }
+
+/* Sections that fill in live while an upload runs */
+.empty-state[hidden],
+.table-empty[hidden],
+.photo-gallery[hidden],
+.table-wrap[hidden] {
+    display: none !important;
+}
 .upload-list li.is-done .upload-state { color: var(--success, #17794a); }
 .upload-list li.is-error .upload-state { color: var(--danger, #b42318); }
 
