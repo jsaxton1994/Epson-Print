@@ -73,6 +73,13 @@ try {
         $frontRef     = '';
         $frontId      = 0;
 
+        // Queue position is the time the order was accepted, not its id, so an
+        // order submitted later but accepted first prints first. Orders
+        // accepted before the column existed fall back to their submit time.
+        $queueOrder = accepted_at_column_ready()
+            ? 'COALESCE(o.accepted_at, o.created_at) ASC, o.id ASC'
+            : 'o.created_at ASC, o.id ASC';
+
         while (microtime(true) < $sendDeadline) {
             $frontOrder = db_one(
                 "SELECT o.*
@@ -82,7 +89,7 @@ try {
                        SELECT 1 FROM order_photos p
                        WHERE p.order_id = o.id AND p.status IN ('pending', 'printing')
                    )
-                 ORDER BY o.id ASC
+                 ORDER BY " . $queueOrder . "
                  LIMIT 1"
             );
 

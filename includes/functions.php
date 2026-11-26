@@ -529,6 +529,45 @@ function print_started_column_ready(): bool
 }
 
 /**
+ * When an order joined the automatic print queue.
+ *
+ * `orders.accepted_at` ships in the schema for new installs and is added with
+ * an ALTER on existing ones the first time it is needed. If the ALTER is
+ * refused, the queue falls back to ordering by submission time.
+ */
+function accepted_at_column_ready(): bool
+{
+    static $ready = null;
+
+    if ($ready !== null) {
+        return $ready;
+    }
+
+    if (setting('schema_orders_accepted_at') === 'ready') {
+        return $ready = true;
+    }
+
+    try {
+        $exists = (int) db_val(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'accepted_at'"
+        );
+
+        if ($exists === 0) {
+            db()->exec('ALTER TABLE orders ADD COLUMN accepted_at DATETIME DEFAULT NULL AFTER updated_at');
+        }
+
+        set_setting('schema_orders_accepted_at', 'ready');
+
+        return $ready = true;
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not add orders.accepted_at: ' . $e->getMessage());
+
+        return $ready = false;
+    }
+}
+
+/**
  * When each photo of an order was handed to the printer.
  *
  * @return array<int, string|null> photo id => print start time
@@ -743,6 +782,12 @@ function accept_order_for_printing(int $orderId, string $actor): void
          WHERE order_id = ? AND status IN ('failed', 'cancelled')",
         [$orderId]
     );
+
+    // Queue position is the acceptance time, not the order id, so an order
+    // submitted later but accepted first prints first.
+    if (accepted_at_column_ready()) {
+        db_update('orders', ['accepted_at' => now()], 'id = ?', [$orderId]);
+    }
 
     update_order_status(
         $orderId,

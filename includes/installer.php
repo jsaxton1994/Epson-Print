@@ -57,6 +57,7 @@ CREATE TABLE orders (
     status        VARCHAR(20)  NOT NULL DEFAULT 'pending',
     error_message TEXT         DEFAULT NULL,
     printed_at    DATETIME     DEFAULT NULL,
+    accepted_at   DATETIME     DEFAULT NULL,
     created_at    DATETIME     NOT NULL,
     updated_at    DATETIME     NOT NULL,
     PRIMARY KEY (id),

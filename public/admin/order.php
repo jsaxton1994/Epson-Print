@@ -98,28 +98,29 @@ if (is_post()) {
             redirect($back);
         }
 
-        // One order at a time: sending now would put these sheets into the
-        // middle of another order the printer is still working through.
-        $busyOrder = db_one(
-            "SELECT o.reference FROM order_photos p
+        // One sheet at a time: nothing is sent while a photo — this order's or
+        // another's — is still on the printer.
+        $busyPhoto = db_one(
+            "SELECT p.order_id, o.reference FROM order_photos p
              JOIN orders o ON o.id = p.order_id
-             WHERE p.status = 'printing' AND p.order_id <> ?
+             WHERE p.status = 'printing'
              ORDER BY p.id ASC
-             LIMIT 1",
-            [$orderId]
+             LIMIT 1"
         );
 
-        if ($busyOrder !== null) {
-            flash('error', 'Order ' . $busyOrder['reference'] . ' is still printing. Wait for it to finish before sending this order.');
+        if ($busyPhoto !== null) {
+            $busy = (int) $busyPhoto['order_id'] === $orderId
+                ? 'A photo from this order is still printing'
+                : 'Order ' . $busyPhoto['reference'] . ' is still printing';
+            flash('error', $busy . '. Wait for it to finish, then press Print again.');
             redirect($back);
         }
 
-        // Work through a slice with a time budget. Big orders are finished over
-        // several clicks instead of holding one request open for 100 Epson jobs.
-        // Allow the slowest single Epson call to finish before PHP's own limit.
+        // One photo per click. Several jobs at once would sit on the printer
+        // together and could print out of order or mixed with another order.
         @set_time_limit(PRINT_BATCH_SECONDS + EPSON_TIMEOUT + 5);
 
-        $batch     = array_slice($toSend, 0, PRINT_BATCH_MAX);
+        $batch     = array_slice($toSend, 0, 1);
         $sent      = 0;
         $failed    = 0;
         $skipped   = 0;
@@ -153,7 +154,7 @@ if (is_post()) {
         sync_order_status($orderId, (string) $admin['name']);
 
         if ($sent > 0) {
-            flash('success', $sent . ' photo' . ($sent === 1 ? '' : 's') . ' sent to the printer. They print in queue order.');
+            flash('success', 'One photo sent to the printer. Press Print again once it has finished so the sheets stay in order.');
         }
         if ($skipped > 0) {
             flash('info', $skipped . ' photo' . ($skipped === 1 ? ' was' : 's were') . ' already being sent by another process and skipped.');
@@ -162,7 +163,7 @@ if (is_post()) {
             flash('error', 'Could not send ' . $failed . ' photo' . ($failed === 1 ? '' : 's') . '. ' . implode(' ', array_slice($errors, 0, 2)));
         }
         if ($remaining > 0) {
-            flash('info', $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' still waiting. Press the print button again to send the next batch.');
+            flash('info', $remaining . ' photo' . ($remaining === 1 ? '' : 's') . ' still waiting. Press Print again after the printer finishes this one.');
         }
 
         redirect($back);
@@ -377,7 +378,7 @@ $totalBytes  = array_sum(array_map(static fn (array $p): int => (int) $p['file_s
 $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => in_array($p['status'], ['pending', 'failed'], true)));
 $reprint     = $order['status'] === 'completed';
 $printTotal  = $reprint ? $count : count($pendingSend);
-$printNow    = min(PRINT_BATCH_MAX, $printTotal);
+$printNow    = min(1, $printTotal);
 $canAccept   = $count > 0 && in_array($order['status'], ['pending', 'failed'], true);
 $canPrint    = $count > 0
     && $epson->isConnected()
@@ -508,22 +509,20 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
 
                     <?php if ($canPrint): ?>
                         <form method="post" action="<?= e($back) ?>" data-confirm="<?= $reprint
-                            ? 'Reprint all ' . $count . ' photos in batches of ' . PRINT_BATCH_MAX . '?'
-                            : 'Send up to ' . $printNow . ' photo' . ($printNow === 1 ? '' : 's') . ' to ' . e(EPSON_PRINTER_MODEL) . ' now?' ?>">
+                            ? 'Reprint this order one photo at a time, starting now?'
+                            : 'Send the next photo to ' . e(EPSON_PRINTER_MODEL) . ' now?' ?>">
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="<?= $reprint ? 'reprint' : 'print' ?>">
                             <button class="btn btn-soft btn-sm" type="submit">
                                 <?= icon('printer') ?>
                                 <?php if ($reprint): ?>
-                                    Print again (<?= $printNow ?> at a time)
+                                    Print next photo
                                 <?php else: ?>
-                                    Send next <?= $printNow ?> of <?= $printTotal ?> now
+                                    Send next photo (<?= $printTotal ?> left)
                                 <?php endif; ?>
                             </button>
                         </form>
-                        <?php if ($printTotal > PRINT_BATCH_MAX): ?>
-                            <span class="muted" style="font-size:.78rem;align-self:center">Up to <?= (int) PRINT_BATCH_MAX ?> per click so the request cannot time out.</span>
-                        <?php endif; ?>
+                        <span class="muted" style="font-size:.78rem;align-self:center">One photo per click; the next sends after the printer finishes.</span>
                     <?php endif; ?>
 
                     <?php if ($order['status'] === 'accepted'): ?>
