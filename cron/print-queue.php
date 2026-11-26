@@ -231,7 +231,11 @@ try {
                     ? strtotime((string) $printing['print_started_at'])
                     : false;
 
-                if ($startedAt !== false && time() - $startedAt > PRINT_POLL_FAST_SECONDS) {
+                if (epson_notifications_enabled()) {
+                    // Epson pushes each completion to the webhook, so this check
+                    // is only a safety net for a missed notification.
+                    $pollSeconds = PRINT_POLL_SAFETY_SECONDS;
+                } elseif ($startedAt !== false && time() - $startedAt > PRINT_POLL_FAST_SECONDS) {
                     $pollSeconds = PRINT_POLL_SLOW_SECONDS;
                 }
 

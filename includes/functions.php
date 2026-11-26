@@ -312,6 +312,106 @@ function epson_recent_requests(int $limit = 10): array
 }
 
 /**
+ * Secret path token for the Epson notification endpoint.
+ */
+function epson_notify_secret(bool $refresh = false): string
+{
+    $secret = (string) setting('epson_notify_secret', '');
+
+    if ($refresh || $secret === '') {
+        $secret = bin2hex(random_bytes(24));
+        set_setting('epson_notify_secret', $secret);
+    }
+
+    return $secret;
+}
+
+function epson_notify_url(bool $refresh = false): string
+{
+    return absolute_url('epson-notify.php') . '?token=' . epson_notify_secret($refresh);
+}
+
+/**
+ * Whether Epson pushes job status changes to this site.
+ */
+function epson_notifications_enabled(): bool
+{
+    return setting('epson_notifications_enabled', '') === '1';
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function epson_notification_log(int $limit = 5): array
+{
+    $log = json_decode((string) setting('epson_notify_log', ''), true);
+
+    return is_array($log) ? array_slice($log, 0, $limit) : [];
+}
+
+function epson_log_notification(array $entry): void
+{
+    $entry += [
+        'at'       => now(),
+        'job_id'   => '',
+        'status'   => '',
+        'photo_id' => null,
+        'matched'  => false,
+        'result'   => '',
+    ];
+
+    $log = json_decode((string) setting('epson_notify_log', ''), true);
+    $log = is_array($log) ? $log : [];
+    array_unshift($log, $entry);
+
+    set_setting('epson_notify_log', json_encode(array_slice($log, 0, 20), JSON_UNESCAPED_SLASHES));
+    set_setting('epson_notify_last_at', (string) $entry['at']);
+}
+
+/**
+ * Apply a job status reported by Epson to the photo that owns the job.
+ *
+ * Only a photo still marked "printing" is changed, so repeated notifications
+ * for the same job are harmless.
+ *
+ * @return array{matched:bool,photo_id:?int,status:string}
+ */
+function epson_apply_job_status(string $jobId, array $result, string $actor = 'Epson notification'): array
+{
+    if ($jobId === '') {
+        return ['matched' => false, 'photo_id' => null, 'status' => ''];
+    }
+
+    $photo = db_one(
+        "SELECT p.id, p.order_id, p.status
+         FROM order_photos p
+         JOIN orders o ON o.id = p.order_id
+         WHERE p.epson_job_id = ? AND o.status <> 'cancelled'
+         ORDER BY p.id DESC
+         LIMIT 1",
+        [$jobId]
+    );
+
+    if ($photo === null) {
+        return ['matched' => false, 'photo_id' => null, 'status' => ''];
+    }
+
+    if ($photo['status'] !== 'printing' || ($result['status'] ?? 'printing') === 'printing') {
+        return ['matched' => true, 'photo_id' => (int) $photo['id'], 'status' => (string) $photo['status']];
+    }
+
+    db_update('order_photos', [
+        'status'        => $result['status'],
+        'printed_at'    => $result['status'] === 'completed' ? now() : null,
+        'error_message' => $result['status'] === 'failed' ? ($result['detail'] ?? null) : null,
+    ], 'id = ?', [$photo['id']]);
+
+    sync_order_status((int) $photo['order_id'], $actor);
+
+    return ['matched' => true, 'photo_id' => (int) $photo['id'], 'status' => (string) $result['status']];
+}
+
+/**
  * Whether automatic printing is paused for maintenance.
  */
 function printing_paused(): bool

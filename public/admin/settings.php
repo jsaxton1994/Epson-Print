@@ -91,7 +91,41 @@ if (is_post()) {
 
     if ($action === 'disconnect') {
         $epson->disconnect();
+        set_setting('epson_notifications_enabled', '');
         flash('success', 'Printer unlinked. Credentials were kept so you can reconnect quickly.');
+        redirect('admin/settings.php');
+    }
+
+    if (in_array($action, ['notify_enable', 'notify_disable', 'notify_reset'], true)) {
+        if (!$epson->isConnected()) {
+            flash('error', 'Link the printer before changing job notifications.');
+            redirect('admin/settings.php');
+        }
+
+        try {
+            if ($action === 'notify_enable') {
+                $epson->setNotification(true, epson_notify_url());
+                set_setting('epson_notifications_enabled', '1');
+                set_setting('epson_notify_registered_at', now());
+                flash('success', 'Epson will now push job updates to this site; status polling drops to a slow safety net.');
+            }
+
+            if ($action === 'notify_reset') {
+                $epson->setNotification(true, epson_notify_url(true));
+                set_setting('epson_notifications_enabled', '1');
+                set_setting('epson_notify_registered_at', now());
+                flash('success', 'New webhook secret generated and registered. The old URL no longer works.');
+            }
+
+            if ($action === 'notify_disable') {
+                $epson->setNotification(false);
+                set_setting('epson_notifications_enabled', '');
+                flash('success', 'Job notifications turned off. The queue is back to polling Epson for job status.');
+            }
+        } catch (EpsonException $e) {
+            flash('error', 'Epson did not accept the notification change: ' . $e->getMessage());
+        }
+
         redirect('admin/settings.php');
     }
 
@@ -313,6 +347,78 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                     <?php if (!$epsonFresh->isConfigured()): ?>
                         <p class="help mt-2">Save the credentials first — the connect button unlocks once they are stored.</p>
                     <?php endif; ?>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Print-job notifications</h3>
+                    <p>
+                        Epson can push job updates to this site instead of the queue asking every few seconds.
+                        When it is on, the worker only checks as a slow safety net (<?= (int) PRINT_POLL_SAFETY_SECONDS ?> s),
+                        which means far fewer connections to Epson and far less exposure to its timeouts.
+                    </p>
+
+                    <div class="field">
+                        <label for="epson_notify_url">Webhook URL</label>
+                        <div class="code-box">
+                            <span><?= e(epson_notify_url()) ?></span>
+                            <button class="copy-btn" type="button" data-copy="<?= e(epson_notify_url()) ?>">Copy</button>
+                        </div>
+                        <p class="help">Keep this URL private: the token is the only protection, so treat it like a password.</p>
+                    </div>
+
+                    <div class="summary-list" style="margin:0 0 14px">
+                        <div class="summary-row"><span>Status</span><strong><?= epson_notifications_enabled() ? 'On' : 'Off' ?></strong></div>
+                        <?php if (epson_notifications_enabled() && setting('epson_notify_registered_at', '') !== ''): ?>
+                            <div class="summary-row"><span>Registered</span><strong><?= e(time_ago((string) setting('epson_notify_registered_at', ''))) ?></strong></div>
+                        <?php endif; ?>
+                        <?php if (setting('epson_notify_last_at', '') !== ''): ?>
+                            <div class="summary-row"><span>Last notification</span><strong><?= e(time_ago((string) setting('epson_notify_last_at', ''))) ?></strong></div>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php $notifyLog = epson_notification_log(4); ?>
+                    <?php if ($notifyLog !== []): ?>
+                        <div class="table-wrap" style="margin-bottom:14px">
+                            <table class="table">
+                                <thead><tr><th>Time</th><th>Job status</th><th>Photo</th></tr></thead>
+                                <tbody>
+                                    <?php foreach ($notifyLog as $entry): ?>
+                                        <?php $entryAt = strtotime((string) $entry['at']) ?: time(); ?>
+                                        <tr>
+                                            <td class="muted"><?= e(date('H:i:s', $entryAt)) ?></td>
+                                            <td><?= e((string) $entry['status']) ?></td>
+                                            <td><?= !empty($entry['matched']) ? '#' . (int) $entry['photo_id'] . ' → ' . e((string) $entry['result']) : 'no match' ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap">
+                        <?php if ($epsonFresh->isConnected()): ?>
+                            <?php if (epson_notifications_enabled()): ?>
+                                <form method="post">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="notify_reset">
+                                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Re-register / new secret</button>
+                                </form>
+                                <form method="post">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="notify_disable">
+                                    <button class="btn btn-ghost btn-sm" type="submit"><?= icon('close') ?> Turn off notifications</button>
+                                </form>
+                            <?php else: ?>
+                                <form method="post">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="notify_enable">
+                                    <button class="btn btn-primary btn-sm" type="submit"><?= icon('bolt') ?> Turn on notifications</button>
+                                </form>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="muted" style="font-size:.82rem">Link the printer to register the webhook with Epson.</span>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="settings-section">
