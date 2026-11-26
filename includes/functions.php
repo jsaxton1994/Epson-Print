@@ -260,6 +260,14 @@ function queue_health(): array
     $oldestAge = $oldestTs === false ? null : max(0, $now - $oldestTs);
     $staleAfter = PRINT_QUEUE_STALE_MINUTES * 60;
 
+    // One order at a time means a big order takes hours and the orders behind it
+    // wait: that is normal. A stall is orders waiting while nothing is on the
+    // printer and nothing has come off it for a while.
+    $printingNow   = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'printing'");
+    $lastPrinted   = db_val('SELECT MAX(printed_at) FROM order_photos WHERE printed_at IS NOT NULL');
+    $lastPrintedTs = $lastPrinted !== null ? strtotime((string) $lastPrinted) : false;
+    $progressAge   = $lastPrintedTs === false ? null : max(0, $now - $lastPrintedTs);
+
     return [
         'last_run'          => $lastRun,
         'last_run_age'      => $lastRunAge,
@@ -272,8 +280,11 @@ function queue_health(): array
         'queued'            => $queued,
         'oldest_reference'  => $oldest['reference'] ?? null,
         'oldest_age'        => $oldestAge,
-        'queue_stalled'     => $queued > 0 && $oldestAge !== null
-            && $oldestAge > (PRINT_QUEUE_ORDER_STALL_MINUTES * 60),
+        'queue_stalled'     => $queued > 0
+            && $printingNow === 0
+            && ($progressAge === null || $progressAge > (PRINT_QUEUE_ORDER_STALL_MINUTES * 60)),
+        'printing_now'      => $printingNow,
+        'progress_age'      => $progressAge,
         'watchdog_last_run' => $watchdogRun,
         'watchdog_age'      => $watchdogAge,
         'watchdog_stale'    => $watchdogTs !== false && $watchdogAge !== null

@@ -161,7 +161,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <?= icon('alert') ?>
         <div>
             <strong>The print queue is stalled</strong>
-            <p><?= e((string) $queueHealth['oldest_reference']) ?> has been waiting <?= (int) floor(((int) $queueHealth['oldest_age']) / 60) ?> minutes. Check the worker status below.</p>
+            <p><?php if ($queueHealth['progress_age'] === null): ?>No photo has reached the printer yet.<?php else: ?>Nothing has printed for <?= (int) floor(((int) $queueHealth['progress_age']) / 60) ?> minutes and the printer is idle.<?php endif; ?> Check the worker status below.</p>
         </div>
     </div>
 <?php elseif ($queueHealth['watchdog_last_run'] === null): ?>

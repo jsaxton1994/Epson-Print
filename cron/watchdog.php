@@ -84,6 +84,9 @@ try {
             ? max(1, (int) floor($health['oldest_age'] / 60)) . ' min waiting'
             : 'age unknown') . ')'
         : 'none';
+    $progress = $health['progress_age'] !== null
+        ? max(1, (int) floor($health['progress_age'] / 60)) . ' min since the last photo finished'
+        : 'no photo printed yet';
     $lastError = $health['last_error'] !== '' ? $health['last_error'] : 'none';
     $recipient = $health['alert_email'] !== '' ? $health['alert_email'] : 'not configured';
 
@@ -98,6 +101,7 @@ try {
         'Worker last error: ' . $lastError,
         'Accepted orders waiting: ' . $health['queued'],
         'Oldest accepted order: ' . $oldest,
+        'Print progress: ' . $progress,
         'Printer linked: ' . ($printer ? 'yes' : 'no'),
         'Watchdog last run: ' . ($health['watchdog_last_run'] !== null
             ? format_date((string) $health['watchdog_last_run'])
