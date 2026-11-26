@@ -285,6 +285,162 @@ function queue_health(): array
 }
 
 /**
+ * What the printer is doing right now, for the admin dashboard.
+ *
+ * Combines the Epson device check with the live status of the job on the
+ * printer, so the dashboard can say "printing photo 4 of 12" or "out of paper"
+ * instead of only "linked". Epson prints one photo per job, so the job being
+ * watched is the photo with status "printing".
+ *
+ * @return array<string,mixed>
+ */
+function printer_live_status(?EpsonClient $epson = null): array
+{
+    $epson ??= EpsonClient::fromSettings();
+
+    $status = [
+        'state'           => 'not_set_up',
+        'label'           => 'Not set up',
+        'detail'          => 'Add Epson Connect credentials in Settings to monitor the printer.',
+        'order_id'        => null,
+        'order_url'       => null,
+        'order_reference' => null,
+        'photo_position'  => null,
+        'photo_total'     => null,
+        'job_status'      => null,
+        'job_reason'      => null,
+        'queued_orders'   => (int) db_val(
+            "SELECT COUNT(*) FROM orders o
+             WHERE o.status = 'accepted'
+               AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id AND p.status = 'pending')"
+        ),
+        'connected'       => null,
+        'checked_at'      => now(),
+    ];
+
+    if (!$epson->isConfigured()) {
+        return $status;
+    }
+
+    if (!$epson->isConnected()) {
+        return array_merge($status, [
+            'state'  => 'not_linked',
+            'label'  => 'Not linked',
+            'detail' => 'Authorise the printer in Settings → Epson Connect.',
+        ]);
+    }
+
+    try {
+        $device = $epson->deviceInfo();
+        $status['connected'] = !empty($device['connected']);
+    } catch (EpsonException $e) {
+        return array_merge($status, [
+            'state'  => 'unreachable',
+            'label'  => 'Epson unreachable',
+            'detail' => $e->getMessage(),
+        ]);
+    }
+
+    $photo = db_one(
+        "SELECT p.id, p.order_id, p.position, p.epson_job_id, o.reference,
+                (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id) AS photo_total
+         FROM order_photos p
+         JOIN orders o ON o.id = p.order_id
+         WHERE p.status = 'printing'
+           AND p.epson_job_id IS NOT NULL AND p.epson_job_id <> ''
+           AND o.status <> 'cancelled'
+         ORDER BY p.id ASC
+         LIMIT 1"
+    );
+
+    if ($photo === null) {
+        $waiting = (int) $status['queued_orders'];
+
+        return array_merge($status, [
+            'state'  => 'idle',
+            'label'  => 'Idle',
+            'detail' => $waiting > 0
+                ? 'Nothing on the printer right now; ' . $waiting . ' order' . ($waiting === 1 ? '' : 's') . ' waiting in the queue.'
+                : 'Nothing on the printer — the queue is empty.',
+        ]);
+    }
+
+    $status['order_id']        = (int) $photo['order_id'];
+    $status['order_url']       = url('admin/order.php?id=' . (int) $photo['order_id']);
+    $status['order_reference'] = (string) $photo['reference'];
+    $status['photo_position']  = (int) $photo['position'];
+    $status['photo_total']     = (int) $photo['photo_total'];
+
+    $started = order_photo_print_started((int) $photo['order_id']);
+    $minutes = photo_printing_minutes($started[(int) $photo['id']] ?? null);
+
+    try {
+        $job = $epson->jobState($epson->jobStatus((string) $photo['epson_job_id']));
+    } catch (EpsonException $e) {
+        return array_merge($status, [
+            'state'  => 'unreachable',
+            'label'  => 'Job status unavailable',
+            'detail' => $e->getMessage(),
+        ]);
+    }
+
+    $status['job_status'] = $job['status'];
+    $status['job_reason'] = $job['reason'];
+
+    $progress = 'Photo ' . $status['photo_position'] . ' of ' . $status['photo_total']
+        . ($minutes !== null ? ' · ' . $minutes . ' min on the printer' : '');
+
+    $stops = [
+        'media_jam'           => ['Paper jam', 'Clear the jam; printing resumes when the printer is ready.'],
+        'media_empty'         => ['Out of paper', 'Load photo paper; printing resumes when the printer is ready.'],
+        'marker_supply_empty' => ['Out of ink', 'Replace the ink; printing resumes when the printer is ready.'],
+        'attention_required'  => ['Needs attention', 'The printer paused this job — check its display.'],
+    ];
+
+    if ($job['status'] === 'processing_stopped' || isset($stops[$job['reason']])) {
+        [$label, $hint] = $stops[$job['reason']] ?? $stops['attention_required'];
+
+        return array_merge($status, [
+            'state'  => 'attention',
+            'label'  => $label,
+            'detail' => $progress . ' · ' . $hint,
+        ]);
+    }
+
+    if (in_array($job['status'], ['processing', 'printing', 'printing_in_progress'], true)) {
+        return array_merge($status, [
+            'state'  => 'printing',
+            'label'  => 'Printing',
+            'detail' => $progress . '.',
+        ]);
+    }
+
+    if (in_array($job['status'], ['pending', 'pending_held'], true)) {
+        return array_merge($status, [
+            'state'  => 'waiting',
+            'label'  => 'Sent, waiting for the printer',
+            'detail' => $progress . ' · Epson has not started it yet.',
+        ]);
+    }
+
+    if (in_array($job['status'], ['completed', 'finished', 'printed'], true)) {
+        return array_merge($status, [
+            'state'  => 'idle',
+            'label'  => 'Sheet finished',
+            'detail' => $progress . ' · the queue will hand over the next photo.',
+        ]);
+    }
+
+    $readable = $job['status'] !== '' ? ucfirst(str_replace('_', ' ', $job['status'])) : 'Unknown';
+
+    return array_merge($status, [
+        'state'  => 'attention',
+        'label'  => $readable,
+        'detail' => $progress . ' · Epson reports ' . ($job['status'] !== '' ? '“' . $job['status'] . '”' : 'nothing') . '.',
+    ]);
+}
+
+/**
  * Orders waiting on a person: a print that failed, including photos the queue
  * released as stuck, or a photo failure that left the order marked failed.
  *

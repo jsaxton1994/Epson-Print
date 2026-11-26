@@ -335,6 +335,23 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <span class="device-state is-off">Not linked</span>
                 <?php endif; ?>
             </div>
+            <?php $printerLive = printer_live_status($epson); ?>
+            <div class="device-live" data-printer-live
+                 data-status-url="<?= e(url('admin/printer-status.php')) ?>"
+                 data-state="<?= e($printerLive['state']) ?>">
+                <div class="device-live-head">
+                    <span class="status-dot"></span>
+                    <strong data-live-label><?= e($printerLive['label']) ?></strong>
+                    <span class="device-live-time" data-live-time>checked <?= e(time_ago($printerLive['checked_at'])) ?></span>
+                </div>
+                <p class="device-live-detail" data-live-detail><?= e($printerLive['detail']) ?></p>
+                <a class="device-live-link" data-live-link
+                   href="<?= $printerLive['order_url'] !== null ? e((string) $printerLive['order_url']) : '#' ?>"
+                   <?= $printerLive['order_url'] !== null ? '' : 'hidden' ?>>
+                    <span data-live-order><?= e((string) ($printerLive['order_reference'] ?? '')) ?></span> <?= icon('arrow-right') ?>
+                </a>
+            </div>
+
             <div class="device-name">
                 <span class="device-icon"><?= icon('printer') ?></span>
                 <div>

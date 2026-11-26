@@ -998,3 +998,65 @@
     from { opacity: 0; }
     to { opacity: 1; }
 }
+
+/* Live printer status in the dashboard device card */
+.device-live {
+    position: relative;
+    display: grid;
+    gap: 6px;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(6, 14, 30, .38);
+    border: 1px solid rgba(255, 255, 255, .12);
+}
+
+.device-live-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.device-live-head strong {
+    font-size: .95rem;
+    font-weight: 650;
+    letter-spacing: -.01em;
+}
+
+.device-live-time {
+    margin-left: auto;
+    font-size: .68rem;
+    color: rgba(255, 255, 255, .55);
+}
+
+.device-live-detail {
+    margin: 0;
+    font-size: .8rem;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, .78);
+}
+
+.device-live-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: #8ff0e2;
+}
+
+.device-live-link[hidden] { display: none; }
+.device-live-link .icon { width: 14px; height: 14px; }
+
+.device-live[data-state="idle"] .status-dot { background: #2ee6b0; }
+.device-live[data-state="printing"] .status-dot { background: #7aa6ff; box-shadow: 0 0 0 4px rgba(122, 166, 255, .18); }
+.device-live[data-state="waiting"] .status-dot { background: #ffd166; box-shadow: 0 0 0 4px rgba(255, 209, 102, .18); }
+.device-live[data-state="attention"] .status-dot { background: #ffaa5c; box-shadow: 0 0 0 4px rgba(255, 170, 92, .2); }
+.device-live[data-state="unreachable"] .status-dot,
+.device-live[data-state="not_linked"] .status-dot,
+.device-live[data-state="not_set_up"] .status-dot {
+    background: #ff8080;
+    box-shadow: 0 0 0 4px rgba(255, 128, 128, .18);
+    animation: none;
+}

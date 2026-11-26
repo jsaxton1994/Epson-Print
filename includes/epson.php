@@ -176,6 +176,36 @@ final class EpsonClient
     }
 
     /**
+     * Raw Epson job status and reason, e.g. ['processing_stopped', 'media_empty'].
+     *
+     * interpretJobStatus() collapses these into an order status; the dashboard
+     * needs the reason to tell a jam from out-of-paper or out-of-ink.
+     *
+     * @return array{status:string,reason:string}
+     */
+    public function jobState(array $payload): array
+    {
+        $status = '';
+        $reason = '';
+
+        array_walk_recursive($payload, static function ($value, $key) use (&$status, &$reason): void {
+            if (!is_string($value)) {
+                return;
+            }
+
+            $key = strtolower((string) $key);
+
+            if ($status === '' && in_array($key, ['status', 'jobstatus', 'printstatus'], true)) {
+                $status = strtolower($value);
+            } elseif ($reason === '' && in_array($key, ['status_reason', 'statusreason'], true)) {
+                $reason = strtolower($value);
+            }
+        });
+
+        return ['status' => $status, 'reason' => $reason];
+    }
+
+    /**
      * Translate an Epson job response into an order status.
      *
      * @return array{status:string,detail:string}
