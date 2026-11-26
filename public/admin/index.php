@@ -26,7 +26,11 @@ $counts = db_one(
 $queueHealth = queue_health();
 $queueWorkerState = $queueHealth['worker_never_run']
     ? 'Never run'
-    : ($queueHealth['worker_stale'] ? 'Stopped' : ($queueHealth['last_status'] === 'error' ? 'Failing' : 'Healthy'));
+    : ($queueHealth['worker_stale']
+        ? 'Stopped'
+        : ($queueHealth['last_status'] === 'error'
+            ? 'Failing'
+            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy')));
 $attention = orders_needing_attention();
 $queueWatchdogState = $queueHealth['watchdog_last_run'] === null
     ? 'Never run'
@@ -134,6 +138,14 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <div>
             <strong>The last print-queue run failed</strong>
             <p><?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'Check the print-queue log for details.') ?></p>
+        </div>
+    </div>
+<?php elseif ($queueHealth['last_status'] === 'warning'): ?>
+    <div class="banner banner-info">
+        <?= icon('clock') ?>
+        <div>
+            <strong>Epson is not answering; the queue is retrying</strong>
+            <p><?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'No photos were lost — the worker retries on its next run.') ?></p>
         </div>
     </div>
 <?php elseif ($queueHealth['queued'] > 0 && !$epson->isConnected()): ?>

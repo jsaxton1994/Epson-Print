@@ -365,9 +365,21 @@ if ($errors !== []) {
     $exitCode = 1;
 }
 
+// A connection that never opened is not a failed run: nothing was lost and
+// the worker is retrying, so report it as a warning the dashboard can show.
+$transportTrouble = isset($transportNote);
+$lastError        = implode(' ', array_unique($errors));
+
+if ($lastError === '' && $transportTrouble) {
+    $lastError = 'Epson did not answer a status check; the worker is retrying. No photos were lost.';
+}
+
 set_setting('print_queue_last_finished', now());
-set_setting('print_queue_last_status', $exitCode === 0 ? 'ok' : 'error');
-set_setting('print_queue_last_error', mb_substr(implode(' ', array_unique($errors)), 0, 1000));
+set_setting(
+    'print_queue_last_status',
+    $exitCode === 0 ? ($transportTrouble ? 'warning' : 'ok') : 'error'
+);
+set_setting('print_queue_last_error', mb_substr($lastError, 0, 1000));
 
 if ($exitCode === 0) {
     set_setting('print_queue_last_success', now());
