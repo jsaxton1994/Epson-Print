@@ -429,7 +429,7 @@ function queue_health(): array
  *
  * @return array<string,mixed>
  */
-function printer_live_status(?EpsonClient $epson = null): array
+function printer_live_status(?EpsonClient $epson = null, bool $allowNetwork = true): array
 {
     $cached = json_decode((string) setting('printer_status_cache', ''), true);
 
@@ -438,6 +438,35 @@ function printer_live_status(?EpsonClient $epson = null): array
         $cached['cached'] = true;
 
         return $cached;
+    }
+
+    // Page loads never wait on Epson: they show the last known state (marked
+    // stale) and the dashboard's own poll or the Refresh button does the call.
+    if (!$allowNetwork) {
+        if (is_array($cached)) {
+            $cached['cached'] = true;
+            $cached['stale']  = true;
+
+            return $cached;
+        }
+
+        return [
+            'state'           => 'unknown',
+            'label'           => 'Not checked yet',
+            'detail'          => 'Press Refresh to ask Epson for the printer state.',
+            'order_id'        => null,
+            'order_url'       => null,
+            'order_reference' => null,
+            'photo_position'  => null,
+            'photo_total'     => null,
+            'job_status'      => null,
+            'job_reason'      => null,
+            'queued_orders'   => 0,
+            'connected'       => null,
+            'checked_at'      => now(),
+            'never_checked'   => true,
+            'cached'          => false,
+        ];
     }
 
     $status = printer_live_status_now($epson);

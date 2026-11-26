@@ -32,8 +32,17 @@ if (is_post()) {
     }
 
     if ($action === 'refresh') {
+        @set_time_limit(60);
         set_setting('printer_status_cache', '');
-        flash('info', 'Printer status refreshed.');
+
+        $fresh = printer_live_status($epson);
+
+        if (($fresh['state'] ?? '') === 'unreachable') {
+            flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
+        } else {
+            flash('info', 'Printer status refreshed.');
+        }
+
         redirect('admin/maintenance.php');
     }
 
@@ -58,7 +67,7 @@ if (is_post()) {
 
 $pause  = printing_pause_info();
 $health = queue_health();
-$status = printer_live_status($epson);
+$status = printer_live_status($epson, false);
 
 $epsonStats    = epson_request_stats();
 $circuitLeft   = epson_circuit_seconds();
@@ -165,7 +174,9 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
             <div class="panel-head">
                 <div>
                     <h3>Printer right now</h3>
-                    <p>Last checked <?= e(time_ago((string) $status['checked_at'])) ?></p>
+                    <p>
+                        <?= !empty($status['never_checked']) ? 'Not checked yet' : 'Last checked ' . e(time_ago((string) $status['checked_at'])) ?><?= !empty($status['stale']) ? ' · cached while Epson is unreachable' : '' ?>
+                    </p>
                 </div>
                 <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
                     <?= csrf_field() ?>
