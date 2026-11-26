@@ -731,6 +731,11 @@ hr {
 
 .dropzone-grid:empty { display: none; }
 
+.dropzone-grid img.is-pending {
+    background: #eef2fa;
+    opacity: .5;
+}
+
 .dropzone-more {
     display: flex;
     align-items: center;

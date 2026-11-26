@@ -41,13 +41,37 @@
         const multi = zone.hasAttribute("data-multi");
         const maxFiles = multi ? (Number(zone.dataset.maxFiles) || 10) : 1;
         const batchSize = Math.max(1, Number(zone.dataset.batchSize) || 10);
-        let objectUrls = [];
+        let previewToken = 0;
 
         if (!input) return;
 
-        const clearUrls = () => {
-            objectUrls.forEach((url) => URL.revokeObjectURL(url));
-            objectUrls = [];
+        // Decode a 200px stand-in for the preview grid. Pointing <img> at the
+        // full-size file makes iOS Safari decode every picked photo at full
+        // resolution, which can leave the native photo picker on screen while
+        // the page is busy — the "stuck after selecting photos" symptom.
+        const smallPreview = async (file) => {
+            if (typeof createImageBitmap !== "function") return null;
+
+            try {
+                const bitmap = await createImageBitmap(file, { resizeWidth: 200, resizeQuality: "low" });
+                const scale = Math.min(1, 200 / Math.max(bitmap.width, bitmap.height));
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+                canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+
+                const context = canvas.getContext("2d");
+                if (!context) {
+                    if (typeof bitmap.close === "function") bitmap.close();
+                    return null;
+                }
+
+                context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                if (typeof bitmap.close === "function") bitmap.close();
+
+                return canvas.toDataURL("image/jpeg", 0.7);
+            } catch (error) {
+                return null;
+            }
         };
 
         const selected = () => Array.from(input.files || []);
@@ -62,25 +86,44 @@
         };
 
         const render = () => {
-            clearUrls();
+            const token = ++previewToken;
             const files = selected();
             const total = files.reduce((sum, file) => sum + file.size, 0);
 
             if (grid) {
                 grid.innerHTML = "";
-                // Preview only the first few; a 100-photo selection must stay light.
-                files.slice(0, 12).forEach((file) => {
-                    const url = URL.createObjectURL(file);
-                    objectUrls.push(url);
+                // Empty slots keep the order stable while the small previews
+                // decode one at a time; no full-size decode on selection.
+                const previews = files.slice(0, 6);
+                const slots = previews.map(() => {
                     const img = document.createElement("img");
-                    img.src = url;
                     img.alt = "";
+                    img.decoding = "async";
+                    img.className = "is-pending";
                     grid.appendChild(img);
+                    return img;
                 });
-                if (files.length > 12) {
+
+                (async () => {
+                    // One at a time: six 48-megapixel photos decoded together is
+                    // what made a phone browser grind to a halt.
+                    for (let index = 0; index < previews.length; index++) {
+                        const url = await smallPreview(previews[index]);
+                        if (token !== previewToken) return;
+
+                        if (url) {
+                            slots[index].src = url;
+                            slots[index].className = "";
+                        } else {
+                            slots[index].remove();
+                        }
+                    }
+                })();
+
+                if (files.length > 6) {
                     const more = document.createElement("span");
                     more.className = "dropzone-more";
-                    more.textContent = `+${files.length - 12}`;
+                    more.textContent = `+${files.length - 6}`;
                     grid.appendChild(more);
                 }
             }
@@ -147,8 +190,10 @@
             });
 
             let chosen = unique;
+            let trimmed = false;
             if (unique.length > maxFiles) {
                 chosen = unique.slice(0, maxFiles);
+                trimmed = true;
                 window.alert(`Only ${maxFiles} photos can be added here. The first ${maxFiles} are selected.`);
             }
 
@@ -163,21 +208,36 @@
                 }
             }
 
-            try {
-                const transfer = new DataTransfer();
-                chosen.forEach((file) => transfer.items.add(file));
-                input.files = transfer.files;
-            } catch (error) {
-                if (!multi) {
-                    input.value = "";
+            // Only rewrite the input when the picker's selection actually
+            // changed. Re-assigning input.files inside a change handler can
+            // wedge the iOS picker.
+            const current = Array.from(input.files || []);
+            const unchanged = !append && !trimmed
+                && current.length === chosen.length
+                && chosen.every((file, index) => current[index] === file);
+
+            if (!unchanged) {
+                try {
+                    const transfer = new DataTransfer();
+                    chosen.forEach((file) => transfer.items.add(file));
+                    input.files = transfer.files;
+                } catch (error) {
+                    if (!multi) {
+                        input.value = "";
+                    }
+                    /* Older browsers keep their own file selection. */
                 }
-                /* Older browsers keep their own file selection. */
             }
 
             render();
         };
 
-        input.addEventListener("change", () => accept(input.files, false));
+        input.addEventListener("change", () => {
+            // Snapshot now, do the work after the picker has had a chance to
+            // close, so the native sheet never waits on our JS.
+            const picked = Array.from(input.files || []);
+            window.setTimeout(() => accept(picked, false), 50);
+        });
         render();
 
         ["dragenter", "dragover"].forEach((name) => {
@@ -657,8 +717,14 @@
                     }
                     await nextFrame();
 
-                    const body = new FormData(form);
-                    body.delete("photos[]");
+                    // Build the body from the form fields only: FormData(form)
+                    // would copy the whole picked FileList for every batch.
+                    const body = new FormData();
+                    form.querySelectorAll("input[name], select[name], textarea[name]").forEach((field) => {
+                        if (field.type === "file") return;
+                        if ((field.type === "checkbox" || field.type === "radio") && !field.checked) return;
+                        body.append(field.name, field.value);
+                    });
                     body.set("ajax", "1");
                     chunk.forEach((file) => body.append("photos[]", file));
 
