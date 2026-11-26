@@ -217,6 +217,19 @@ final class EpsonClient
     }
 
     /**
+     * Drop a job that was prepared but never started, so unstarted jobs do not
+     * pile up at Epson when a worker slice ends mid-print.
+     */
+    public function cancelJob(string $jobId): void
+    {
+        if ($jobId === '') {
+            return;
+        }
+
+        $this->api('DELETE', '/printing/jobs/' . rawurlencode($jobId), null, 20, 1);
+    }
+
+    /**
      * Start a job that was created and uploaded earlier.
      */
     public function startPhoto(array $job): void

@@ -300,6 +300,19 @@ try {
             $prepared = $prepareNext($frontOrder);
         }
 
+        // A job uploaded for the next photo that never got started (the slice
+        // ended while this sheet was still printing) is dropped, so unstarted
+        // jobs do not build up in the Epson account.
+        if ($prepared !== null) {
+            try {
+                $epson->cancelJob((string) ($prepared['job']['jobId'] ?? ''));
+            } catch (Throwable) {
+                // Epson also expires jobs that are never started.
+            }
+
+            $prepared = null;
+        }
+
         if ($sentTotal > 0) {
             $messages[] = $frontRef . ': ' . $sentTotal . ' photo'
                 . ($sentTotal === 1 ? '' : 's') . ' sent one at a time.';
