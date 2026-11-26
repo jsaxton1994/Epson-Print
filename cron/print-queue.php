@@ -114,6 +114,24 @@ try {
             return null;
         };
 
+        // A notification can finish the sheet while the worker is waiting for
+        // its next status check, so wait in short slices and wake as soon as
+        // the webhook records it: no idle printer, no extra Epson requests.
+        $waitFor = static function (float $seconds): void {
+            $kick      = epson_job_kick();
+            $remaining = $seconds;
+
+            while ($remaining > 0) {
+                $slice = min(1.0, $remaining);
+                usleep((int) round($slice * 1000000));
+                $remaining -= $slice;
+
+                if ($kick !== 0 && epson_job_kick() !== $kick) {
+                    return;
+                }
+            }
+        };
+
         // Queue position is the time the order was accepted, not its id, so an
         // order submitted later but accepted first prints first. Orders
         // accepted before the column existed fall back to their submit time.
@@ -183,7 +201,7 @@ try {
                     // back off so a throttling Epson endpoint is not hammered.
                     $transportFailures++;
                     $transportNote ??= 'Epson did not answer a status check; retrying.';
-                    usleep(min(30, PRINT_POLL_SECONDS << min(3, $transportFailures)) * 1000000);
+                    $waitFor((float) min(30, PRINT_POLL_SECONDS << min(3, $transportFailures)));
                     continue;
                 }
 
@@ -244,7 +262,7 @@ try {
                 $wait = $pollSeconds - (microtime(true) - $checkedAt);
 
                 if ($wait > 0) {
-                    usleep((int) round($wait * 1000000));
+                    $waitFor((float) $wait);
                 }
 
                 continue;

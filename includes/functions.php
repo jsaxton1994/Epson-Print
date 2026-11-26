@@ -369,6 +369,19 @@ function epson_log_notification(array $entry): void
 }
 
 /**
+ * A counter the webhook bumps when it finishes a sheet, so the worker's wait
+ * can be cut short instead of sleeping through the whole safety interval.
+ */
+function epson_job_kick(): int
+{
+    if (!epson_notifications_enabled()) {
+        return 0;
+    }
+
+    return (int) (db_val("SELECT setting_value FROM settings WHERE setting_key = 'epson_job_kick'") ?? 0);
+}
+
+/**
  * Apply a job status reported by Epson to the photo that owns the job.
  *
  * Only a photo still marked "printing" is changed, so repeated notifications
@@ -406,6 +419,7 @@ function epson_apply_job_status(string $jobId, array $result, string $actor = 'E
         'error_message' => $result['status'] === 'failed' ? ($result['detail'] ?? null) : null,
     ], 'id = ?', [$photo['id']]);
 
+    set_setting('epson_job_kick', (string) (epson_job_kick() + 1));
     sync_order_status((int) $photo['order_id'], $actor);
 
     return ['matched' => true, 'photo_id' => (int) $photo['id'], 'status' => (string) $result['status']];
