@@ -230,6 +230,43 @@ function send_queue_alert(string $subject, string $body): bool
  *
  * @return array<string, mixed>
  */
+/**
+ * Whether automatic printing is paused for maintenance.
+ */
+function printing_paused(): bool
+{
+    return setting('print_queue_paused', '') === '1';
+}
+
+/**
+ * @return array{paused:bool,at:string,by:string,note:string}
+ */
+function printing_pause_info(): array
+{
+    return [
+        'paused' => printing_paused(),
+        'at'     => (string) setting('print_queue_paused_at', ''),
+        'by'     => (string) setting('print_queue_paused_by', ''),
+        'note'   => (string) setting('print_queue_paused_note', ''),
+    ];
+}
+
+function pause_printing(string $actor, string $note = ''): void
+{
+    set_setting('print_queue_paused', '1');
+    set_setting('print_queue_paused_at', now());
+    set_setting('print_queue_paused_by', $actor);
+    set_setting('print_queue_paused_note', mb_substr(trim($note), 0, 200));
+}
+
+function resume_printing(string $actor): void
+{
+    set_setting('print_queue_paused', '');
+    set_setting('print_queue_paused_at', '');
+    set_setting('print_queue_paused_by', $actor);
+    set_setting('print_queue_paused_note', '');
+}
+
 function queue_health(): array
 {
     $now       = time();
@@ -269,6 +306,9 @@ function queue_health(): array
     $progressAge   = $lastPrintedTs === false ? null : max(0, $now - $lastPrintedTs);
 
     return [
+        'paused'            => printing_paused(),
+        'paused_at'         => (string) setting('print_queue_paused_at', ''),
+        'paused_note'       => (string) setting('print_queue_paused_note', ''),
         'last_run'          => $lastRun,
         'last_run_age'      => $lastRunAge,
         'last_success'      => setting('print_queue_last_success'),
@@ -867,6 +907,14 @@ function send_photo_to_printer(
     array $photo,
     array $allowedStatuses = ['pending']
 ): array {
+    if (printing_paused()) {
+        return [
+            'ok'      => false,
+            'skipped' => true,
+            'error'   => 'Printing is paused for maintenance. Resume printing on the Maintenance page to send photos again.',
+        ];
+    }
+
     $prepared = prepare_photo_for_printer($epson, $order, $photo, $allowedStatuses);
 
     if (!$prepared['ok']) {

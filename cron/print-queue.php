@@ -60,7 +60,14 @@ try {
                 . ' waiting; the printer is not linked.';
         }
     } else {
-        $sendDeadline = microtime(true) + PRINT_SEQUENTIAL_SECONDS;
+        // A paused queue still tracks the sheet already on the printer, but it
+        // sends nothing new until an administrator resumes printing.
+        $sendDeadline = printing_paused() ? 0.0 : microtime(true) + PRINT_SEQUENTIAL_SECONDS;
+
+        if (printing_paused()) {
+            $pauseNote  = (string) setting('print_queue_paused_note', '');
+            $messages[] = 'Printing is paused' . ($pauseNote !== '' ? ' (' . $pauseNote . ')' : '') . '; no photos were sent.';
+        }
 
         // Strictly one order, one sheet at a time. The worker only sends a
         // photo when nothing is already on the printer, then waits for that

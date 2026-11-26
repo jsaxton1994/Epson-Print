@@ -41,6 +41,7 @@ function icon(string $name, string $class = ''): string
         'leaf'       => '<path d="M20 4c-9 0-15 4.5-15 11a4.5 4.5 0 0 0 4.5 4.5C16 19.5 20 13.5 20 4Z"/><path d="M4 21c1-6 5-9.5 10-11.5"/>',
         'copy'       => '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/>',
         'tiro'       => '<circle cx="12" cy="12" r="9"/><path d="M12 8v.01"/><path d="M12 11v5"/>',
+        'wrench'     => '<path d="M14.7 6.3a4 4 0 0 0 5 5L21 21H10l1.3-9.3a4 4 0 0 1 3.4-5.4Z"/><path d="m9.5 14.5-6 6"/>',
     ];
 
     $path = $paths[$name] ?? $paths['file'];
@@ -208,6 +209,7 @@ function app_start(string $role, string $active, string $title, string $subtitle
             'dashboard' => ['label' => 'Dashboard', 'href' => 'admin/index.php', 'icon' => 'home'],
             'orders'    => ['label' => 'Orders', 'href' => 'admin/orders.php', 'icon' => 'layers'],
             'customers' => ['label' => 'Customers', 'href' => 'admin/customers.php', 'icon' => 'users'],
+            'maintenance' => ['label' => 'Maintenance', 'href' => 'admin/maintenance.php', 'icon' => 'wrench'],
             'settings'  => ['label' => 'Settings', 'href' => 'admin/settings.php', 'icon' => 'gear'],
         ]
         : [

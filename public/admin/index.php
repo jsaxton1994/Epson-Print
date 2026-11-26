@@ -24,13 +24,15 @@ $counts = db_one(
 ) ?? ['pending' => 0, 'accepted' => 0, 'printing' => 0, 'failed' => 0, 'total' => 0];
 
 $queueHealth = queue_health();
-$queueWorkerState = $queueHealth['worker_never_run']
+$queueWorkerState = $queueHealth['paused']
+    ? 'Paused'
+    : ($queueHealth['worker_never_run']
     ? 'Never run'
     : ($queueHealth['worker_stale']
         ? 'Stopped'
         : ($queueHealth['last_status'] === 'error'
             ? 'Failing'
-            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy')));
+            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy'))));
 $attention = orders_needing_attention();
 $queueWatchdogState = $queueHealth['watchdog_last_run'] === null
     ? 'Never run'
@@ -111,6 +113,22 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             </p>
             <div class="banner-actions">
                 <a class="btn btn-danger btn-sm" href="<?= e(url('admin/orders.php?status=failed')) ?>"><?= icon('printer') ?> Show failed orders</a>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($queueHealth['paused']): ?>
+    <div class="banner banner-warn">
+        <?= icon('clock') ?>
+        <div>
+            <strong>Printing is paused for maintenance</strong>
+            <p>
+                Nothing new is sent to the printer<?= $queueHealth['paused_note'] !== '' ? ': ' . e($queueHealth['paused_note']) : '' ?>.
+                Photos stay queued in order and printing continues when you resume.
+            </p>
+            <div class="banner-actions">
+                <a class="btn btn-soft btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('wrench') ?> Maintenance &amp; resume</a>
             </div>
         </div>
     </div>

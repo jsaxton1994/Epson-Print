@@ -50,7 +50,9 @@ try {
 
     $issue = null;
 
-    if ($health['worker_never_run'] && $health['queued'] > 0) {
+    if ($health['paused']) {
+        // Printing was paused on purpose for maintenance: nothing to alert about.
+    } elseif ($health['worker_never_run'] && $health['queued'] > 0) {
         $issue = 'worker_stopped';
     } elseif ($health['worker_stale']) {
         $issue = 'worker_stopped';
