@@ -48,6 +48,35 @@ if (is_post()) {
         redirect($back);
     }
 
+    if ($action === 'retry_failed') {
+        if ($order['status'] === 'cancelled') {
+            flash('error', 'This order was cancelled, so its photos cannot be queued.');
+            redirect($back);
+        }
+
+        $requeued = db_update(
+            'order_photos',
+            [
+                'status'        => 'pending',
+                'epson_job_id'  => null,
+                'printed_at'    => null,
+                'error_message' => null,
+            ] + (print_started_column_ready() ? ['print_started_at' => null] : []),
+            "order_id = ? AND status = 'failed'",
+            [$orderId]
+        );
+
+        if ($requeued > 0) {
+            sync_order_status($orderId, (string) $admin['name']);
+        }
+
+        flash($requeued > 0 ? 'success' : 'info', $requeued > 0
+            ? $requeued . ' failed photo' . ($requeued === 1 ? '' : 's') . ' put back in the queue; the queue prints them in position order.'
+            : 'This order has no failed photos to retry.');
+
+        redirect($back);
+    }
+
     if (in_array($action, ['print', 'print_photo', 'reprint'], true)) {
         if (!$epson->isConnected()) {
             flash('error', 'Connect the printer in Settings before sending jobs.');
@@ -369,6 +398,7 @@ $quality     = $qualityOptions[$order['print_quality']] ?? ucfirst((string) $ord
 $canEditQuality = in_array($order['status'], ['pending', 'accepted', 'printing', 'failed'], true);
 $totalBytes  = array_sum(array_map(static fn (array $p): int => (int) $p['file_size'], $photos));
 $pendingSend = array_values(array_filter($photos, static fn (array $p): bool => in_array($p['status'], ['pending', 'failed'], true)));
+$failedPhotos = count(array_filter($photos, static fn (array $p): bool => $p['status'] === 'failed'));
 $reprint     = $order['status'] === 'completed';
 $printTotal  = $reprint ? $count : count($pendingSend);
 $canAccept   = $count > 0 && in_array($order['status'], ['pending', 'failed'], true);
@@ -515,6 +545,14 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                             </button>
                         </form>
                         <span class="muted" style="font-size:.78rem;align-self:center">One photo per click; the next sends after the printer finishes.</span>
+                    <?php endif; ?>
+
+                    <?php if ($failedPhotos > 0 && $order['status'] !== 'cancelled'): ?>
+                        <form method="post" action="<?= e($back) ?>" data-confirm="Put <?= $failedPhotos ?> failed photo<?= $failedPhotos === 1 ? '' : 's' ?> back in the print queue? Nothing is sent until the printer is free.">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="retry_failed">
+                            <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Retry <?= $failedPhotos ?> failed photo<?= $failedPhotos === 1 ? '' : 's' ?></button>
+                        </form>
                     <?php endif; ?>
 
                     <?php if ($order['status'] === 'accepted'): ?>
