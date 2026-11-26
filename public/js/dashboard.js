@@ -37,15 +37,20 @@
             }
         };
 
+        let inFlight = false;
+
         const refresh = async (panel) => {
             const endpoint = panel.dataset.statusUrl;
-            if (!endpoint) return;
+            if (!endpoint || inFlight) return;
+
+            inFlight = true;
 
             try {
                 const response = await fetch(endpoint, {
                     credentials: "same-origin",
                     cache: "no-store",
                     headers: { Accept: "application/json" },
+                    signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(20000) : undefined,
                 });
 
                 if (!response.ok) throw new Error("HTTP " + response.status);
@@ -55,8 +60,10 @@
                 paint(panel, {
                     state: "unreachable",
                     label: "Status unavailable",
-                    detail: "Could not refresh the printer status. Retrying…",
+                    detail: "Epson did not answer in time. Retrying…",
                 });
+            } finally {
+                inFlight = false;
             }
         };
 
@@ -65,6 +72,7 @@
             livePanels.forEach(refresh);
         };
 
+        tick();
         window.setInterval(tick, refreshMs);
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) tick();

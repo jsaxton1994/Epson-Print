@@ -1050,6 +1050,7 @@
 .device-live-link .icon { width: 14px; height: 14px; }
 
 .device-live[data-state="idle"] .status-dot { background: #2ee6b0; }
+.device-live[data-state="checking"] .status-dot { background: #94a0b8; box-shadow: 0 0 0 4px rgba(148, 160, 184, .18); }
 .device-live[data-state="printing"] .status-dot { background: #7aa6ff; box-shadow: 0 0 0 4px rgba(122, 166, 255, .18); }
 .device-live[data-state="waiting"] .status-dot { background: #ffd166; box-shadow: 0 0 0 4px rgba(255, 209, 102, .18); }
 .device-live[data-state="attention"] .status-dot { background: #ffaa5c; box-shadow: 0 0 0 4px rgba(255, 170, 92, .2); }

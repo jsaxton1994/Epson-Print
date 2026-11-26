@@ -335,20 +335,18 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <span class="device-state is-off">Not linked</span>
                 <?php endif; ?>
             </div>
-            <?php $printerLive = printer_live_status($epson); ?>
+            <?php /* Filled in by dashboard.js so a slow Epson request never holds up the page. */ ?>
             <div class="device-live" data-printer-live
                  data-status-url="<?= e(url('admin/printer-status.php')) ?>"
-                 data-state="<?= e($printerLive['state']) ?>">
+                 data-state="checking">
                 <div class="device-live-head">
                     <span class="status-dot"></span>
-                    <strong data-live-label><?= e($printerLive['label']) ?></strong>
-                    <span class="device-live-time" data-live-time>checked <?= e(time_ago($printerLive['checked_at'])) ?></span>
+                    <strong data-live-label>Checking the printer…</strong>
+                    <span class="device-live-time" data-live-time>live</span>
                 </div>
-                <p class="device-live-detail" data-live-detail><?= e($printerLive['detail']) ?></p>
-                <a class="device-live-link" data-live-link
-                   href="<?= $printerLive['order_url'] !== null ? e((string) $printerLive['order_url']) : '#' ?>"
-                   <?= $printerLive['order_url'] !== null ? '' : 'hidden' ?>>
-                    <span data-live-order><?= e((string) ($printerLive['order_reference'] ?? '')) ?></span> <?= icon('arrow-right') ?>
+                <p class="device-live-detail" data-live-detail>Reading the current job from Epson.</p>
+                <a class="device-live-link" data-live-link href="#" hidden>
+                    <span data-live-order></span> <?= icon('arrow-right') ?>
                 </a>
             </div>
 
