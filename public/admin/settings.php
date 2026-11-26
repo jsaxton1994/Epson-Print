@@ -141,12 +141,16 @@ if (is_post()) {
             }
 
             if ($action === 'notify_disable') {
-                $epson->setNotification(false);
+                // Off for this site first: the queue must go back to normal
+                // polling even when Epson cannot be reached to deregister.
                 set_setting('epson_notifications_enabled', '');
+                $epson->setNotification(false);
                 flash('success', 'Job notifications turned off. The queue is back to polling Epson for job status.');
             }
         } catch (EpsonException $e) {
-            flash('error', 'Epson did not accept the notification change: ' . $e->getMessage());
+            flash('error', $action === 'notify_disable'
+                ? 'Notifications are off for this site, but Epson could not be told: ' . $e->getMessage()
+                : 'Epson did not accept the notification change: ' . $e->getMessage());
         }
 
         redirect('admin/settings.php');
