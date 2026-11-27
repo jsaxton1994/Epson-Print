@@ -1503,8 +1503,12 @@ function queue_health(): array
     $liveness    = (string) setting('print_queue_liveness', '');
     $livenessTs  = $liveness !== '' ? strtotime($liveness) : false;
     $livenessAge = $livenessTs === false ? null : max(0, $now - $livenessTs);
+    // A run always writes its first heartbeat as it starts, so a missing one
+    // means the run predates this check (or died before writing): fall back to
+    // the last-run threshold rather than calling it hung on no evidence.
     $runHung     = $runInProgress
-        && ($livenessAge === null || $livenessAge > PRINT_QUEUE_LIVENESS_SECONDS);
+        && $livenessAge !== null
+        && $livenessAge > PRINT_QUEUE_LIVENESS_SECONDS;
 
     // One order at a time means a big order takes hours and the orders behind it
     // wait: that is normal. A stall is orders waiting while nothing is on the

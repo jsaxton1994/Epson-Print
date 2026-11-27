@@ -312,9 +312,15 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <div class="summary-list" style="margin:0">
             <div class="summary-row"><span>Queue worker</span><strong><?= e($queueWorkerState) ?></strong></div>
             <div class="summary-row"><span>Worker last run</span><strong><?= $queueHealth['last_run'] !== null ? e(time_ago((string) $queueHealth['last_run'])) : 'Never' ?></strong></div>
-            <div class="summary-row"><span>Sign of life</span><strong><?= $queueHealth['run_in_progress']
-                ? ((int) ($queueHealth['liveness_age'] ?? 0)) . ' s ago'
-                : 'No run in progress' ?></strong></div>
+            <div class="summary-row"><span>Sign of life</span><strong><?php
+                if (!$queueHealth['run_in_progress']) {
+                    echo 'No run in progress';
+                } elseif ($queueHealth['liveness_age'] === null) {
+                    echo 'No heartbeat yet';
+                } else {
+                    echo (int) $queueHealth['liveness_age'] . ' s ago';
+                }
+            ?></strong></div>
             <div class="summary-row"><span>Watchdog</span><strong><?= e($queueWatchdogState) ?></strong></div>
             <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
             <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
