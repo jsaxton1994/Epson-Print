@@ -71,7 +71,7 @@ if (!$tokenOk) {
     ]);
 
     // 404 rather than 403: do not confirm that the path exists.
-    $finish(404, ['ok' => false], 'token_missing');
+    $finish(404, ['ok' => false], $debug['token'] === 'missing' ? 'token_missing' : 'token_mismatch');
 }
 
 if ($method !== 'POST') {
