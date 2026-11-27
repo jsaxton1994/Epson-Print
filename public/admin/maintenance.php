@@ -195,6 +195,16 @@ if (is_post()) {
         redirect('admin/maintenance.php');
     }
 
+    if ($action === 'notify_watch_only') {
+        // Notifications stay off here, but Epson keeps its registration, so a
+        // real callback can still arrive and be recorded. Nothing it sends is
+        // applied to a photo while this is off.
+        set_setting('epson_notifications_enabled', '');
+        epson_notify_watch_restart();
+        flash('info', 'Notifications are off for this site; Epson keeps its callback registration, so anything it sends is recorded here and applied to nothing.');
+        redirect('admin/maintenance.php');
+    }
+
     if ($action === 'test_connection') {
         // Diagnostics: one request with the fail-fast circuit skipped.
         @set_time_limit(60);
@@ -433,11 +443,18 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                     <h3>Webhook watch</h3>
                     <p>Whether Epson's job callback actually reaches this site</p>
                 </div>
-                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="notify_watch_reset">
-                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Restart watch</button>
-                </form>
+                <div class="table-actions" style="justify-content:flex-end;gap:8px">
+                    <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="notify_watch_reset">
+                        <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Restart watch</button>
+                    </form>
+                    <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="notify_watch_only">
+                        <button class="btn btn-ghost btn-sm" type="submit"><?= icon('eye') ?> Observe only</button>
+                    </form>
+                </div>
             </div>
             <div class="panel-body">
                 <div class="summary-list" style="margin:0 0 12px">
