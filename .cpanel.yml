@@ -4,5 +4,7 @@ deployment:
     - export DEPLOYPATH=/home/snapprin/public_html/
     - /bin/cp -R ./* $DEPLOYPATH
     - /bin/cp -f ./.htaccess $DEPLOYPATH
+    - /bin/rm -f "$DEPLOYPATH/public/admin/settings.php"
+    - /bin/rm -f "$DEPLOYPATH/public/epson-notify.php"
     - /bin/rm -rf "$DEPLOYPATH/database"
     - /bin/rm -rf "$DEPLOYPATH/storage"
