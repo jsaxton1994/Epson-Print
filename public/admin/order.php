@@ -88,6 +88,9 @@ if (is_post()) {
             redirect($back);
         }
 
+        // A manual print still gets the details sheet at the end of the order.
+        ensure_order_details_sheet($orderId);
+
         $toSend = [];
 
         if ($action === 'reprint') {

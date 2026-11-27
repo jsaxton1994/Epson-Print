@@ -41,7 +41,7 @@ if (is_post()) {
 $pause      = printing_pause_info();
 $supplyHold = printer_supply_block();
 
-$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
+$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'" . order_photo_only());
 
 app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and look after the printer between jobs.');
 ?>

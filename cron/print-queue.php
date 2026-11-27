@@ -190,6 +190,16 @@ try {
             $frontId  = (int) $frontOrder['id'];
             $frontRef = (string) $frontOrder['reference'];
 
+            // Give this order its details sheet before its last photo is sent,
+            // so the sheet comes out after the photos. Orders accepted before
+            // the option existed get one here too; turning the option off drops
+            // any sheet that is still only queued.
+            if (order_details_sheet_enabled()) {
+                ensure_order_details_sheet($frontId);
+            } else {
+                order_details_sheet_discard_pending($frontId);
+            }
+
             if ($prepared !== null && $prepared['order_id'] !== $frontId) {
                 // The front order changed: the uploaded job is not needed.
                 $prepared = null;
@@ -197,7 +207,8 @@ try {
 
             $printing = db_one(
                 "SELECT p.id, p.order_id, p.status, p.epson_job_id"
-                . (print_started_column_ready() ? ', p.print_started_at' : '') . "
+                . (print_started_column_ready() ? ', p.print_started_at' : '')
+                . (order_photo_kind_column_ready() ? ', p.kind' : '') . "
                  FROM order_photos p
                  JOIN orders o ON o.id = p.order_id
                  WHERE p.status = 'printing'
@@ -238,14 +249,29 @@ try {
 
                 $transportFailures = 0;
 
-                if ($result['status'] !== 'printing') {
+                $photoStatus  = $result['status'];
+                $isDetailsRow = ($printing['kind'] ?? 'photo') === 'details';
+
+                if ($photoStatus === 'failed' && $isDetailsRow) {
+                    // The sheet is an extra, not the customer's photo: drop it
+                    // instead of failing the order or asking for a reprint.
+                    $photoStatus = 'cancelled';
+                    log_order_event(
+                        (int) $printing['order_id'],
+                        'printing',
+                        'The order details sheet could not be printed; the photos are unaffected.',
+                        'Cron'
+                    );
+                }
+
+                if ($photoStatus !== 'printing') {
                     db_update('order_photos', [
-                        'status'        => $result['status'],
-                        'printed_at'    => $result['status'] === 'completed' ? now() : null,
-                        'error_message' => $result['status'] === 'failed' ? $result['detail'] : null,
+                        'status'        => $photoStatus,
+                        'printed_at'    => $photoStatus === 'completed' ? now() : null,
+                        'error_message' => $photoStatus === 'failed' ? $result['detail'] : null,
                     ], 'id = ?', [$printing['id']]);
 
-                    if ($result['status'] === 'failed') {
+                    if ($photoStatus === 'failed') {
                         $failedTotal++;
                     }
 
@@ -453,7 +479,8 @@ try {
         }
 
         $jobs = db_all(
-            'SELECT p.id, p.order_id, p.status, p.epson_job_id
+            'SELECT p.id, p.order_id, p.status, p.epson_job_id'
+            . (order_photo_kind_column_ready() ? ', p.kind' : '') . '
              FROM order_photos p
              JOIN orders o ON o.id = p.order_id
              WHERE p.status = \'printing\'
@@ -481,10 +508,22 @@ try {
                 $touchedOrders[(int) $photo['order_id']] = true;
 
                 if ($result['status'] !== $photo['status']) {
+                    $nextStatus = $result['status'];
+
+                    if ($nextStatus === 'failed' && ($photo['kind'] ?? 'photo') === 'details') {
+                        $nextStatus = 'cancelled';
+                        log_order_event(
+                            (int) $photo['order_id'],
+                            'printing',
+                            'The order details sheet could not be printed; the photos are unaffected.',
+                            'Cron'
+                        );
+                    }
+
                     db_update('order_photos', [
-                        'status'        => $result['status'],
-                        'printed_at'    => $result['status'] === 'completed' ? now() : null,
-                        'error_message' => $result['status'] === 'failed' ? $result['detail'] : null,
+                        'status'        => $nextStatus,
+                        'printed_at'    => $nextStatus === 'completed' ? now() : null,
+                        'error_message' => $nextStatus === 'failed' ? $result['detail'] : null,
                     ], 'id = ?', [$photo['id']]);
                 }
             } catch (EpsonException $e) {
@@ -507,6 +546,12 @@ try {
         // Final completion sweep: even if no job was checked in this run, an
         // order whose photos are all completed must not stay stuck as
         // "printing". sync_order_status records the completion event.
+        // A details sheet that was dropped (failed or cancelled) is not the
+        // customer's photo, so it must not keep the order from completing.
+        $sheetSweep = order_photo_kind_column_ready()
+            ? " AND (p.kind <> 'details' OR p.status IN ('pending', 'printing'))"
+            : '';
+
         $finishedOrders = db_all(
             "SELECT o.id
              FROM orders o
@@ -514,7 +559,7 @@ try {
                AND EXISTS (SELECT 1 FROM order_photos p WHERE p.order_id = o.id)
                AND NOT EXISTS (
                    SELECT 1 FROM order_photos p
-                   WHERE p.order_id = o.id AND p.status <> 'completed'
+                   WHERE p.order_id = o.id AND p.status <> 'completed'" . $sheetSweep . "
                )"
         );
         $completedOrders = 0;

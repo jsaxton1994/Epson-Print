@@ -368,6 +368,7 @@ function queue_estimates(): array
 {
     $per         = sheet_seconds_estimate();
     $startedSql  = print_started_column_ready() ? 'p.print_started_at' : 'NULL AS print_started_at';
+    $kindSql     = order_photo_kind_column_ready() ? " AND p.kind = 'photo'" : '';
     $queueOrder  = accepted_at_column_ready()
         ? 'COALESCE(o.accepted_at, o.created_at) ASC, o.id ASC'
         : 'o.created_at ASC, o.id ASC';
@@ -377,7 +378,7 @@ function queue_estimates(): array
          FROM order_photos p
          JOIN orders o ON o.id = p.order_id
          WHERE o.status IN ('accepted', 'printing')
-           AND p.status IN ('printing', 'pending')
+           AND p.status IN ('printing', 'pending'){$kindSql}
          ORDER BY {$queueOrder}, p.position ASC, p.id ASC"
     );
 
@@ -519,7 +520,7 @@ function printer_supply_note_stop(string $reason): ?string
         'Photos left for the active order: ' . $health['queued'],
         '',
         'Printing has been held so no more photos are sent until the printer is ready.',
-        'Clear the alert in Admin → Maintenance (or press Resume) once the printer is loaded.',
+        'Clear the alert from the dashboard\'s Maintenance link (or press Resume) once the printer is loaded.',
     ]);
 
     if (!$block['active']) {
@@ -1188,8 +1189,9 @@ function printer_live_status_now(?EpsonClient $epson = null): array
     }
 
     $photo = db_one(
-        "SELECT p.id, p.order_id, p.position, p.epson_job_id, o.reference,
-                (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id) AS photo_total
+        "SELECT p.id, p.order_id, p.position, p.epson_job_id, o.reference"
+        . (order_photo_kind_column_ready() ? ', p.kind' : '') . ",
+                (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id" . order_photo_only('x') . ") AS photo_total
          FROM order_photos p
          JOIN orders o ON o.id = p.order_id
          WHERE p.status = 'printing'
@@ -1229,6 +1231,8 @@ function printer_live_status_now(?EpsonClient $epson = null): array
     $status['photo_position']  = (int) $photo['position'];
     $status['photo_total']     = (int) $photo['photo_total'];
 
+    $isDetailsSheet = ($photo['kind'] ?? 'photo') === 'details';
+
     $started = order_photo_print_started((int) $photo['order_id']);
     $minutes = photo_printing_minutes($started[(int) $photo['id']] ?? null);
 
@@ -1245,8 +1249,10 @@ function printer_live_status_now(?EpsonClient $epson = null): array
     $status['job_status'] = $job['status'];
     $status['job_reason'] = $job['reason'];
 
-    $progress = 'Photo ' . $status['photo_position'] . ' of ' . $status['photo_total']
-        . ($minutes !== null ? ' · ' . $minutes . ' min on the printer' : '');
+    $progress = $isDetailsSheet
+        ? 'Order details sheet' . ($minutes !== null ? ' · ' . $minutes . ' min on the printer' : '')
+        : 'Photo ' . $status['photo_position'] . ' of ' . $status['photo_total']
+            . ($minutes !== null ? ' · ' . $minutes . ' min on the printer' : '');
 
     $stops = [
         'media_jam'           => ['Paper jam', 'Clear the jam; printing resumes when the printer is ready.'],
@@ -1314,8 +1320,8 @@ function orders_needing_attention(int $limit = 6): array
 
     $orders = db_all(
         "SELECT o.id, o.reference, o.status, o.error_message, o.updated_at, u.name AS customer,
-                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id AND p.status = 'failed') AS failed_photos,
-                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count
+                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id AND p.status = 'failed'" . order_photo_only('p') . ") AS failed_photos,
+                (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id" . order_photo_only('p') . ") AS photo_count
          FROM orders o JOIN users u ON u.id = o.user_id
          WHERE " . $where . "
          ORDER BY o.updated_at ASC, o.id ASC
@@ -1324,7 +1330,7 @@ function orders_needing_attention(int $limit = 6): array
 
     $photos = (int) db_val(
         "SELECT COUNT(*) FROM order_photos p JOIN orders o ON o.id = p.order_id
-         WHERE p.status = 'failed' AND o.status <> 'cancelled'"
+         WHERE p.status = 'failed' AND o.status <> 'cancelled'" . order_photo_only('p')
     );
 
     return ['count' => $count, 'photos' => $photos, 'orders' => $orders];
@@ -1481,7 +1487,8 @@ function status_badge(string $status): string
 function order_photo_columns(): string
 {
     return 'id, order_id, file_name, mime_type, file_size, image_width, image_height,
-            position, status, epson_job_id, error_message, printed_at, created_at';
+            position, status, epson_job_id, error_message, printed_at, created_at'
+        . (order_photo_kind_column_ready() ? ', kind' : '');
 }
 
 /**
@@ -1491,14 +1498,346 @@ function order_photos(int $orderId): array
 {
     return db_all(
         'SELECT ' . order_photo_columns() . '
-         FROM order_photos WHERE order_id = ? ORDER BY position ASC, id ASC',
+         FROM order_photos WHERE order_id = ?' . order_photo_only() . ' ORDER BY position ASC, id ASC',
         [$orderId]
     );
 }
 
 function order_photo_count(int $orderId): int
 {
-    return (int) db_val('SELECT COUNT(*) FROM order_photos WHERE order_id = ?', [$orderId]);
+    return (int) db_val('SELECT COUNT(*) FROM order_photos WHERE order_id = ?' . order_photo_only(), [$orderId]);
+}
+
+/**
+ * Dimensions for the order-details sheet, in landscape at roughly 200 dpi and
+ * matching the order's paper so a borderless print is not cropped.
+ *
+ * @return array{0:int,1:int}
+ */
+function order_details_sheet_size(string $paperSize): array
+{
+    return match (strtolower($paperSize)) {
+        '5x7'   => [1400, 1000],
+        'a4'    => [1654, 1169],
+        default => [1200, 800],
+    };
+}
+
+/**
+ * The facts printed on the sheet: what the packet is and who it belongs to.
+ *
+ * @return list<array{0:string,1:string}>
+ */
+function order_details_sheet_lines(array $order, int $photoCount): array
+{
+    $papers  = paper_size_options();
+    $paper   = explode(' — ', $papers[(string) ($order['paper_size'] ?? '')] ?? '4 × 6 in')[0];
+    $quality = explode(' — ', quality_options()[(string) ($order['print_quality'] ?? 'high')] ?? 'High')[0];
+    $finish  = (int) ($order['borderless'] ?? 1) === 1 ? 'Borderless' : 'White border';
+    $colour  = (string) ($order['color_mode'] ?? 'color') === 'mono' ? 'Black & white' : 'Colour';
+
+    $lines = [
+        ['Reference', (string) ($order['reference'] ?? '')],
+        ['Customer', (string) ($order['customer'] ?? '')],
+        ['Email', (string) ($order['customer_email'] ?? '')],
+    ];
+
+    $phone = trim((string) ($order['customer_phone'] ?? ''));
+
+    if ($phone !== '') {
+        $lines[] = ['Phone', $phone];
+    }
+
+    $lines[] = ['Photos', $photoCount . ' photo' . ($photoCount === 1 ? '' : 's')];
+    $lines[] = ['Print', $paper . ' - ' . $finish];
+    $lines[] = ['Quality', $colour . ' - ' . $quality];
+    $lines[] = ['Ordered', format_date((string) ($order['created_at'] ?? ''))];
+    $lines[] = ['Printed', format_date(now())];
+
+    return $lines;
+}
+
+/**
+ * A TrueType font for the sheet when the host has one; the built-in bitmap font
+ * is used when it does not.
+ */
+function order_details_sheet_font(bool $bold = false): ?string
+{
+    static $fonts = [];
+
+    $key = $bold ? 'bold' : 'regular';
+
+    if (array_key_exists($key, $fonts)) {
+        return $fonts[$key];
+    }
+
+    $directories = [
+        '/usr/share/fonts/truetype/dejavu/',
+        '/usr/share/fonts/dejavu/',
+        '/usr/share/fonts/TTF/',
+        '/usr/share/fonts/truetype/liberation/',
+        '/usr/share/fonts/truetype/liberation2/',
+        '/usr/share/fonts/liberation/',
+        '/usr/share/fonts/',
+    ];
+
+    $names = $bold
+        ? ['DejaVuSans-Bold.ttf', 'LiberationSans-Bold.ttf']
+        : ['DejaVuSans.ttf', 'LiberationSans-Regular.ttf'];
+
+    foreach ($directories as $directory) {
+        foreach ($names as $name) {
+            if (is_file($directory . $name) && is_readable($directory . $name)) {
+                return $fonts[$key] = $directory . $name;
+            }
+        }
+    }
+
+    return $fonts[$key] = null;
+}
+
+/**
+ * Draw the sheet with a TrueType font.
+ */
+function order_details_sheet_draw_ttf(int $width, int $height, array $lines, string $font, string $bold)
+{
+    $image = imagecreatetruecolor($width, $height);
+
+    if ($image === false) {
+        return null;
+    }
+
+    $white = imagecolorallocate($image, 255, 255, 255);
+    $ink   = imagecolorallocate($image, 27, 36, 48);
+    $muted = imagecolorallocate($image, 107, 119, 133);
+    $rule  = imagecolorallocate($image, 216, 222, 232);
+
+    imagefill($image, 0, 0, $white);
+
+    $margin    = (int) round($height * 0.075);
+    $titleSize = (int) round($height * 0.062);
+    $bodySize  = (int) round($height * 0.036);
+    $footSize  = (int) round($height * 0.028);
+    $valueX    = (int) round($width * 0.33);
+    $titleBase = $margin + $titleSize;
+    $ruleY     = $titleBase + (int) round($height * 0.035);
+    $bodyTop   = $ruleY + (int) round($height * 0.075);
+    $rowHeight = (int) round($height * 0.058);
+
+    imagettftext($image, $titleSize, 0, $margin, $titleBase, $ink, $bold, 'ORDER DETAILS');
+    imageline($image, $margin, $ruleY, $width - $margin, $ruleY, $rule);
+
+    foreach ($lines as $index => [$label, $value]) {
+        $baseline = $bodyTop + ($index * $rowHeight);
+        imagettftext($image, $bodySize, 0, $margin, $baseline, $muted, $font, $label);
+        imagettftext($image, $bodySize, 0, $valueX, $baseline, $ink, $font, $value);
+    }
+
+    $reference = '';
+    foreach ($lines as [$label, $value]) {
+        if ($label === 'Reference') {
+            $reference = $value;
+            break;
+        }
+    }
+
+    imagettftext(
+        $image,
+        $footSize,
+        0,
+        $margin,
+        $height - $margin,
+        $muted,
+        $font,
+        'This sheet follows the photos of order ' . $reference . '. Keep it with them.'
+    );
+
+    return $image;
+}
+
+/**
+ * Draw the sheet with GD's built-in bitmap font, scaled up. Used only when the
+ * host has no TrueType font installed.
+ */
+function order_details_sheet_draw_builtin(int $width, int $height, array $lines)
+{
+    if (!function_exists('imagescale')) {
+        return null;
+    }
+
+    // Lay the text out at a size the bitmap font suits, then scale the whole
+    // sheet to the print size.
+    $designWidth  = 600;
+    $designHeight = (int) round($designWidth * $height / max(1, $width));
+    $small        = imagecreatetruecolor($designWidth, $designHeight);
+
+    if ($small === false) {
+        return null;
+    }
+
+    $white = imagecolorallocate($small, 255, 255, 255);
+    $ink   = imagecolorallocate($small, 27, 36, 48);
+    $muted = imagecolorallocate($small, 107, 119, 133);
+    $rule  = imagecolorallocate($small, 216, 222, 232);
+
+    imagefill($small, 0, 0, $white);
+
+    // GD's bitmap font is ASCII only, so transliterate names and separators
+    // rather than printing mojibake on the sheet.
+    $accents = [
+        'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A', 'Å' => 'A', 'Æ' => 'AE', 'Ç' => 'C',
+        'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E', 'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'Ð' => 'D', 'Ñ' => 'N', 'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O', 'Ø' => 'O',
+        'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U', 'Ý' => 'Y', 'Þ' => 'Th', 'ß' => 'ss',
+        'à' => 'a', 'á' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'å' => 'a', 'æ' => 'ae', 'ç' => 'c',
+        'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e', 'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ð' => 'd', 'ñ' => 'n', 'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o', 'ø' => 'o',
+        'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u', 'ý' => 'y', 'þ' => 'th', 'ÿ' => 'y',
+        '×' => 'x', '–' => '-', '—' => '-', '·' => '-', '’' => "'", '‘' => "'", '“' => '"', '”' => '"',
+    ];
+
+    $ascii = static function (string $text) use ($accents): string {
+        $text = strtr($text, $accents);
+
+        if (preg_match('/[^\x20-\x7E]/', $text)) {
+            $converted = function_exists('iconv') ? @iconv('UTF-8', 'ASCII//TRANSLIT', $text) : false;
+
+            if ($converted !== false) {
+                $text = $converted;
+            }
+        }
+
+        return (string) preg_replace('/[^\x20-\x7E]/', '?', $text);
+    };
+
+    imagestring($small, 5, 18, 16, 'ORDER DETAILS', $ink);
+    imageline($small, 18, 42, $designWidth - 18, 42, $rule);
+
+    $row = 0;
+    foreach ($lines as [$label, $value]) {
+        $y = 58 + ($row * 22);
+        imagestring($small, 4, 18, $y, $ascii($label), $muted);
+        imagestring($small, 4, 190, $y, mb_substr($ascii($value), 0, 46), $ink);
+        $row++;
+    }
+
+    imagestring($small, 2, 18, $designHeight - 28, 'This sheet follows the photos of this order.', $muted);
+
+    $image = imagescale($small, $width, $height, IMG_BILINEAR_FIXED);
+    imagedestroy($small);
+
+    return $image === false ? null : $image;
+}
+
+/**
+ * Render the details sheet as a PNG Epson can print.
+ *
+ * @return array{data:string,width:int,height:int}|null
+ */
+function order_details_sheet_png(array $order, int $photoCount): ?array
+{
+    if (!function_exists('imagecreatetruecolor') || !function_exists('imagepng')) {
+        return null;
+    }
+
+    [$width, $height] = order_details_sheet_size((string) ($order['paper_size'] ?? '4x6'));
+    $lines            = order_details_sheet_lines($order, $photoCount);
+    $font             = order_details_sheet_font(false);
+    $bold             = order_details_sheet_font(true) ?? $font;
+
+    $image = $font !== null && function_exists('imagettftext')
+        ? order_details_sheet_draw_ttf($width, $height, $lines, $font, (string) $bold)
+        : order_details_sheet_draw_builtin($width, $height, $lines);
+
+    if ($image === null) {
+        return null;
+    }
+
+    ob_start();
+    $ok   = imagepng($image);
+    $data = ob_get_clean();
+    imagedestroy($image);
+
+    if (!$ok || !is_string($data) || $data === '') {
+        return null;
+    }
+
+    return ['data' => $data, 'width' => $width, 'height' => $height];
+}
+
+/**
+ * Add the order-details sheet to an order once, as its last print job.
+ *
+ * The sheet is an ordinary order_photos row of kind "details", so the print
+ * worker sends it with the same one-sheet-at-a-time logic and the same status
+ * tracking. Customer-facing lists and counts filter it out.
+ */
+function ensure_order_details_sheet(int $orderId): bool
+{
+    static $done = [];
+
+    if ($orderId <= 0 || !order_details_sheet_enabled() || !order_photo_kind_column_ready()) {
+        return false;
+    }
+
+    if (array_key_exists($orderId, $done)) {
+        return $done[$orderId];
+    }
+
+    try {
+        $exists = db_val("SELECT id FROM order_photos WHERE order_id = ? AND kind = 'details' LIMIT 1", [$orderId]);
+
+        if ($exists !== null) {
+            return $done[$orderId] = true;
+        }
+
+        $photoCount = order_photo_count($orderId);
+
+        if ($photoCount === 0) {
+            return $done[$orderId] = false;
+        }
+
+        $order = db_one(
+            'SELECT o.*, u.name AS customer, u.email AS customer_email, u.phone AS customer_phone
+             FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = ?',
+            [$orderId]
+        );
+
+        if ($order === null) {
+            return $done[$orderId] = false;
+        }
+
+        $sheet = order_details_sheet_png($order, $photoCount);
+
+        if ($sheet === null) {
+            error_log('[PrintFree] Could not render the details sheet for order ' . $orderId . '.');
+
+            return $done[$orderId] = false;
+        }
+
+        $position = (int) db_val('SELECT COALESCE(MAX(position), 0) FROM order_photos WHERE order_id = ?', [$orderId]) + 1;
+
+        db_insert('order_photos', [
+            'order_id'     => $orderId,
+            'file_name'    => 'order-details-' . strtolower((string) preg_replace('/[^A-Za-z0-9]+/', '-', (string) $order['reference'])) . '.png',
+            'mime_type'    => 'image/png',
+            'image_data'   => $sheet['data'],
+            'thumb_data'   => null,
+            'file_size'    => strlen($sheet['data']),
+            'image_width'  => $sheet['width'],
+            'image_height' => $sheet['height'],
+            'position'     => $position,
+            'status'       => 'pending',
+            'kind'         => 'details',
+            'created_at'   => now(),
+        ]);
+
+        return $done[$orderId] = true;
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not add the details sheet for order ' . $orderId . ': ' . $e->getMessage());
+
+        return $done[$orderId] = false;
+    }
 }
 
 /**
@@ -1566,6 +1905,116 @@ function accepted_at_column_ready(): bool
 }
 
 /**
+ * Add an optional text column to an existing database, once.
+ *
+ * Same guarded ALTER as schema_column_ready(); callers simply turn their
+ * feature off when it returns false.
+ */
+function schema_text_column_ready(
+    string $table,
+    string $column,
+    string $after,
+    string $flag,
+    string $definition
+): bool {
+    static $cache = [];
+
+    $key = $table . '.' . $column;
+
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+
+    if (setting($flag) === 'ready') {
+        return $cache[$key] = true;
+    }
+
+    try {
+        $exists = (int) db_val(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+            [$table, $column]
+        );
+
+        if ($exists === 0) {
+            db()->exec(
+                'ALTER TABLE `' . $table . '` ADD COLUMN `' . $column . '` ' . $definition . ' AFTER `' . $after . '`'
+            );
+        }
+
+        set_setting($flag, 'ready');
+
+        return $cache[$key] = true;
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not add ' . $key . ': ' . $e->getMessage());
+
+        return $cache[$key] = false;
+    }
+}
+
+/**
+ * Whether order_photos is able to tell the generated details sheet apart from
+ * a customer's photo. A refused ALTER simply turns the sheet off.
+ */
+function order_photo_kind_column_ready(): bool
+{
+    return schema_text_column_ready(
+        'order_photos',
+        'kind',
+        'position',
+        'schema_order_photos_kind',
+        "VARCHAR(20) NOT NULL DEFAULT 'photo'"
+    );
+}
+
+/**
+ * SQL keeping the order-details sheet out of customer photo counts and lists.
+ * Empty when the column is unavailable, so every query still works.
+ */
+function order_photo_only(string $alias = ''): string
+{
+    if (!order_photo_kind_column_ready()) {
+        return '';
+    }
+
+    return ' AND ' . ($alias !== '' ? $alias . '.' : '') . "kind = 'photo'";
+}
+
+/**
+ * Whether the order-details sheet prints after each order's photos.
+ */
+function order_details_sheet_enabled(): bool
+{
+    return setting('order_details_sheet_enabled', '1') === '1';
+}
+
+/**
+ * Drop sheets that are queued but not on the printer yet. Used when the Site
+ * Settings option is turned off, so a pending sheet does not print anyway.
+ */
+function order_details_sheet_discard_pending(int $orderId = 0): void
+{
+    if (!order_photo_kind_column_ready()) {
+        return;
+    }
+
+    try {
+        if ($orderId > 0) {
+            db_query(
+                "DELETE FROM order_photos WHERE order_id = ? AND kind = 'details' AND status = 'pending'",
+                [$orderId]
+            );
+
+            return;
+        }
+
+        db_query("DELETE FROM order_photos WHERE kind = 'details' AND status = 'pending'");
+    } catch (Throwable $e) {
+        error_log('[PrintFree] Could not drop queued details sheets: ' . $e->getMessage());
+    }
+}
+
+/**
  * When each photo of an order was handed to the printer.
  *
  * @return array<int, string|null> photo id => print start time
@@ -1624,7 +2073,7 @@ function release_stuck_photos(string $actor = 'Cron'): array
 
     try {
         $stuck = db_all(
-            "SELECT p.id, p.order_id, p.file_name
+            "SELECT p.id, p.order_id, p.file_name" . (order_photo_kind_column_ready() ? ', p.kind' : '') . "
              FROM order_photos p
              JOIN orders o ON o.id = p.order_id
              WHERE p.status = 'printing'
@@ -1639,32 +2088,55 @@ function release_stuck_photos(string $actor = 'Cron'): array
         return [];
     }
 
-    $perOrder = [];
+    $perOrder   = [];
+    $sheetOrder = [];
 
     foreach ($stuck as $photo) {
+        $orderId   = (int) $photo['order_id'];
+        $isDetails = ($photo['kind'] ?? 'photo') === 'details';
+
         db_update('order_photos', [
-            'status'        => 'failed',
+            'status'        => $isDetails ? 'cancelled' : 'failed',
             'printed_at'    => null,
-            'error_message' => 'No completion from the printer after ' . PRINT_JOB_STUCK_MINUTES
+            'error_message' => $isDetails ? null : 'No completion from the printer after ' . PRINT_JOB_STUCK_MINUTES
                 . ' minutes, so it was marked as stuck. Check the printer, then print it again.',
         ], 'id = ?', [(int) $photo['id']]);
 
-        $orderId = (int) $photo['order_id'];
+        if ($isDetails) {
+            $sheetOrder[$orderId] = true;
+            log_order_event(
+                $orderId,
+                'printing',
+                'The order details sheet did not finish at the printer and was dropped; the photos are unaffected.',
+                $actor
+            );
+            continue;
+        }
+
         $perOrder[$orderId] = ($perOrder[$orderId] ?? 0) + 1;
     }
 
-    foreach ($perOrder as $orderId => $count) {
-        $status = sync_order_status($orderId, $actor);
+    foreach (array_keys($perOrder + $sheetOrder) as $orderId) {
+        $status = sync_order_status((int) $orderId, $actor);
+
+        if (!isset($perOrder[$orderId])) {
+            continue;
+        }
+
         log_order_event(
-            $orderId,
+            (int) $orderId,
             $status,
-            $count . ' photo' . ($count === 1 ? ' was' : 's were')
-                . ' stuck at the printer and released so ' . ($count === 1 ? 'it' : 'they') . ' can be retried.',
+            $perOrder[$orderId] . ' photo' . ($perOrder[$orderId] === 1 ? ' was' : 's were')
+                . ' stuck at the printer and released so ' . ($perOrder[$orderId] === 1 ? 'it' : 'they') . ' can be retried.',
             $actor
         );
     }
 
-    return $stuck;
+    // Report photos only; the sheet is not something the operator reprints.
+    return array_values(array_filter(
+        $stuck,
+        static fn (array $photo): bool => ($photo['kind'] ?? 'photo') !== 'details'
+    ));
 }
 
 /**
@@ -1689,7 +2161,7 @@ function send_photo_to_printer(
         return [
             'ok'      => false,
             'skipped' => true,
-            'error'   => 'Printing is paused for maintenance. Resume printing on the Maintenance page to send photos again.',
+            'error'   => 'Printing is paused for maintenance. Turn maintenance mode off in Printer Settings to send photos again.',
         ];
     }
 
@@ -1870,6 +2342,7 @@ function start_prepared_photo(
 function epson_send_failure(EpsonClient $epson, EpsonException $e, array $photo): array
 {
     $photoId      = (int) ($photo['id'] ?? 0);
+    $isDetails    = ($photo['kind'] ?? 'photo') === 'details';
     $neverPrinted = !$e->connected
         || in_array($e->curlErrno, [6, 7], true)
         || in_array($epson->lastStage, ['settings', 'create', 'upload'], true);
@@ -1885,6 +2358,30 @@ function epson_send_failure(EpsonClient $epson, EpsonException $e, array $photo)
             'skipped'   => false,
             'transient' => true,
             'error'     => $photo['file_name'] . ': Epson was unreachable, so the photo stays queued for the next run.',
+        ];
+    }
+
+    if ($isDetails) {
+        // The sheet is an extra for the operator, not the customer's photo, so a
+        // failure drops it instead of marking the order failed.
+        db_update('order_photos', [
+            'status'        => 'cancelled',
+            'error_message' => null,
+        ], 'id = ?', [$photoId]);
+
+        if (!empty($photo['order_id'])) {
+            log_order_event(
+                (int) $photo['order_id'],
+                'printing',
+                'The order details sheet could not be printed: ' . $e->getMessage(),
+                'Printer'
+            );
+        }
+
+        return [
+            'ok'      => false,
+            'skipped' => true,
+            'error'   => 'The order details sheet could not be printed; the photos are unaffected.',
         ];
     }
 
@@ -1919,6 +2416,9 @@ function accept_order_for_printing(int $orderId, string $actor): void
     if (accepted_at_column_ready()) {
         db_update('orders', ['accepted_at' => now()], 'id = ?', [$orderId]);
     }
+
+    // A details sheet goes in last so it prints after every photo.
+    ensure_order_details_sheet($orderId);
 
     update_order_status(
         $orderId,
@@ -2572,8 +3072,28 @@ function sync_order_status(int $orderId, ?string $actor = null): string
         return 'pending';
     }
 
-    $photos = order_photos($orderId);
-    $total  = count($photos);
+    // Every row, including the generated order-details sheet, so an order is
+    // only finished once that sheet has come off the printer too. A sheet that
+    // fails is cancelled rather than failed, so it never marks the order failed.
+    $rows = db_all(
+        'SELECT status' . (order_photo_kind_column_ready() ? ', kind' : ", 'photo' AS kind") . '
+         FROM order_photos WHERE order_id = ?',
+        [$orderId]
+    );
+
+    $photos       = [];
+    $sheetWaiting = false;
+
+    foreach ($rows as $row) {
+        if (($row['kind'] ?? 'photo') === 'details') {
+            $sheetWaiting = $sheetWaiting || in_array((string) $row['status'], ['pending', 'printing'], true);
+            continue;
+        }
+
+        $photos[] = $row;
+    }
+
+    $total = count($photos);
 
     if ($total === 0 || $order['status'] === 'cancelled') {
         return (string) $order['status'];
@@ -2585,7 +3105,7 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     $pending   = (int) ($counts['pending'] ?? 0);
     $sent      = $completed + (int) ($counts['printing'] ?? 0);
 
-    if ($completed === $total) {
+    if ($completed === $total && !$sheetWaiting) {
         $status  = 'completed';
         $message = 'All ' . $total . ' photo' . ($total === 1 ? '' : 's') . ' printed.';
     } elseif ($failed > 0) {
@@ -2597,7 +3117,8 @@ function sync_order_status(int $orderId, ?string $actor = null): string
         // "Printing now" count reads.
         $status  = 'printing';
         $message = $sent . ' of ' . $total . ' photos sent to the printer'
-            . ($pending > 0 ? '; ' . $pending . ' still queued.' : '.');
+            . ($pending > 0 ? '; ' . $pending . ' still queued.' : '.')
+            . ($sheetWaiting && $completed === $total ? ' The order details sheet prints next.' : '');
     } elseif ($order['status'] === 'accepted' && $pending > 0) {
         $status  = 'accepted';
         $message = 'Waiting to print: ' . $pending . ' of ' . $total . ' photos still in the automatic queue.';
@@ -2622,12 +3143,15 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     }
 
     if ($status === 'failed') {
-        $errors = [];
-        foreach ($photos as $photo) {
-            if (!empty($photo['error_message'])) {
-                $errors[] = (string) $photo['error_message'];
-            }
-        }
+        $errors = array_values(array_filter(array_map(
+            static fn (array $row): string => trim((string) ($row['error_message'] ?? '')),
+            db_all(
+                "SELECT error_message FROM order_photos
+                 WHERE order_id = ? AND status = 'failed'" . order_photo_only() . '
+                 ORDER BY id ASC',
+                [$orderId]
+            )
+        )));
         $data['error_message'] = mb_substr(implode(' ', array_unique($errors)), 0, 500)
             ?: 'One or more photos could not be printed.';
     }

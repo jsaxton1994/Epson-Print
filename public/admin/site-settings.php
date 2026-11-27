@@ -24,6 +24,21 @@ if (is_post()) {
         flash('success', 'Site settings saved.');
         redirect('admin/site-settings.php');
     }
+
+    if (input('action') === 'details_sheet') {
+        $enabled = isset($_POST['order_details_sheet_enabled']);
+
+        set_setting('order_details_sheet_enabled', $enabled ? '1' : '0');
+
+        if (!$enabled) {
+            // A sheet that is only queued should not print after the option is
+            // switched off; one already on the printer finishes normally.
+            order_details_sheet_discard_pending();
+        }
+
+        flash('success', 'Order details sheet ' . ($enabled ? 'enabled' : 'disabled') . '.');
+        redirect('admin/site-settings.php');
+    }
 }
 
 app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows and the addresses customers and alerts use.');
@@ -67,6 +82,37 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows a
                 </form>
             </div>
         </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Order details sheet</h3>
+                    <p>What prints after the last photo of each order</p>
+                </div>
+            </div>
+            <div class="panel-body">
+                <form method="post">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="details_sheet">
+
+                    <label class="choice" style="max-width:600px">
+                        <input type="checkbox" name="order_details_sheet_enabled" value="1" <?= order_details_sheet_enabled() ? 'checked' : '' ?>>
+                        <span class="choice-dot"></span>
+                        <span class="choice-text">
+                            <strong>Print a details sheet after each order</strong>
+                            <span>
+                                A plain sheet with the order reference, the customer's name, email and phone, the photo count
+                                and the print settings comes out after the order's last photo, so finished photos can be
+                                matched to an order without checking the site. Sheets already queued are dropped when this is
+                                turned off; a sheet already printing finishes normally.
+                            </span>
+                        </span>
+                    </label>
+
+                    <button class="btn btn-primary mt-3" type="submit"><?= icon('check') ?> Save details sheet setting</button>
+                </form>
+            </div>
+        </section>
     </div>
 
     <div class="stack">
@@ -93,6 +139,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows a
                     <li><?= icon('home') ?><span><strong>Site name</strong> — page titles, header, footer and emails.</span></li>
                     <li><?= icon('mail') ?><span><strong>Support email</strong> — footer contact link and the reply-to address.</span></li>
                     <li><?= icon('alert') ?><span><strong>Queue alert email</strong> — the watchdog and the print worker's failure alerts.</span></li>
+                    <li><?= icon('printer') ?><span><strong>Order details sheet</strong> — printed after the photos of every new order, as its own 4 × 6 sheet.</span></li>
                 </ul>
             </div>
         </section>

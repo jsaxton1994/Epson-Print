@@ -45,18 +45,18 @@ $stats = db_one(
 ) ?? ['total' => 0, 'completed' => 0, 'pending' => 0];
 
 $photosTotal = (int) db_val(
-    'SELECT COUNT(*) FROM order_photos p JOIN orders o ON o.id = p.order_id WHERE o.user_id = ?',
+    'SELECT COUNT(*) FROM order_photos p JOIN orders o ON o.id = p.order_id WHERE o.user_id = ?' . order_photo_only('p'),
     [$customerId]
 );
 $photosPrinted = (int) db_val(
     "SELECT COUNT(*) FROM order_photos p JOIN orders o ON o.id = p.order_id
-     WHERE o.user_id = ? AND p.status = 'completed'",
+     WHERE o.user_id = ? AND p.status = 'completed'" . order_photo_only('p'),
     [$customerId]
 );
 
 $orders = db_all(
     'SELECT o.*,
-            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count,
+            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id' . order_photo_only("p") . ') AS photo_count,
             (SELECT p.id FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_id,
             (SELECT p.file_name FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_name
      FROM orders o WHERE o.user_id = ?

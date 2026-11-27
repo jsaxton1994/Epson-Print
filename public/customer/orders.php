@@ -37,7 +37,7 @@ $page     = paginate($total, 10);
 
 $orders = db_all(
     'SELECT o.*,
-            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count,
+            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id' . order_photo_only("p") . ') AS photo_count,
             (SELECT p.id FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_id,
             (SELECT p.file_name FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_name
      FROM orders o WHERE ' . $whereSql . '

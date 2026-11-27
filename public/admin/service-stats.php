@@ -55,7 +55,7 @@ $counts = db_one(
 
 $status        = printer_live_status($epson, false);
 $supplyHold    = printer_supply_block();
-$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
+$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'" . order_photo_only());
 $waitingOrders = (int) $queueHealth['queued'];
 
 app_start('admin', 'service-stats', 'Service Stats', 'How the queue, the printer and the service are doing.');

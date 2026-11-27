@@ -128,7 +128,7 @@ $edgePins       = array_values(array_unique(array_filter([
 ])));
 
 $maintenance   = printing_pause_info();
-$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
+$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'" . order_photo_only());
 
 app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926 link, maintenance mode and the diagnostics behind it.');
 ?>

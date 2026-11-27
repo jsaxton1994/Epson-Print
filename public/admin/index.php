@@ -50,12 +50,12 @@ $printedToday = (int) db_val(
 
 $customerCount = (int) db_val("SELECT COUNT(*) FROM users WHERE role = 'customer'");
 $photosToday   = (int) db_val(
-    "SELECT COUNT(*) FROM order_photos WHERE status = 'completed' AND printed_at >= ?",
+    "SELECT COUNT(*) FROM order_photos WHERE status = 'completed' AND printed_at >= ?" . order_photo_only(),
     [date('Y-m-d') . ' 00:00:00']
 );
 
 $photoSelect = "
-    (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count,
+    (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id" . order_photo_only('p') . ") AS photo_count,
     (SELECT p.id FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_id,
     (SELECT p.file_name FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_name";
 
@@ -75,11 +75,13 @@ $queue = db_all(
 // The photo the worker has on the printer: its order, position and how much of
 // that order is already done, so the dashboard can name the active order.
 $hasPrintStarted = print_started_column_ready();
+$hasPhotoKind    = order_photo_kind_column_ready();
 $printingNowOrder = db_one(
     "SELECT o.id, o.reference, u.name AS customer, o.paper_size, p.position, p.id AS photo_id,"
+    . ($hasPhotoKind ? ' p.kind,' : '')
     . ($hasPrintStarted ? ' p.print_started_at,' : ' NULL AS print_started_at,')
-    . " (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id) AS photo_total,
-            (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id AND x.printed_at IS NOT NULL) AS photo_done
+    . " (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id" . order_photo_only('x') . ") AS photo_total,
+            (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id AND x.printed_at IS NOT NULL" . order_photo_only('x') . ") AS photo_done
      FROM order_photos p
      JOIN orders o ON o.id = p.order_id
      JOIN users u ON u.id = o.user_id
@@ -93,9 +95,14 @@ $printingNowOrder = db_one(
 $printingHint = 'Queue record · nothing on the printer';
 
 if ($printingNowOrder !== null) {
-    $printingHint = 'Queue record · ' . (string) $printingNowOrder['reference']
-        . ' · photo ' . max(1, (int) $printingNowOrder['position'])
-        . ' of ' . max(1, (int) $printingNowOrder['photo_total']);
+    $printingHint = 'Queue record · ' . (string) $printingNowOrder['reference'];
+
+    if (($printingNowOrder['kind'] ?? 'photo') === 'details') {
+        $printingHint .= ' · order details sheet';
+    } else {
+        $printingHint .= ' · photo ' . max(1, (int) $printingNowOrder['position'])
+            . ' of ' . max(1, (int) $printingNowOrder['photo_total']);
+    }
 } elseif ($queueHealth['paused']) {
     $printingHint = 'Queue record · paused — the queue is holding';
 }

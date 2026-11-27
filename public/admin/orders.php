@@ -39,7 +39,7 @@ $total = (int) db_val(
 $page   = paginate($total, 12);
 $orders = db_all(
     'SELECT o.*, u.name AS customer, u.email AS customer_email,
-            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id) AS photo_count,
+            (SELECT COUNT(*) FROM order_photos p WHERE p.order_id = o.id' . order_photo_only("p") . ') AS photo_count,
             (SELECT p.id FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_id,
             (SELECT p.file_name FROM order_photos p WHERE p.order_id = o.id ORDER BY p.position ASC, p.id ASC LIMIT 1) AS photo_name
      FROM orders o JOIN users u ON u.id = o.user_id'
