@@ -298,6 +298,20 @@
 .ink-swatch.is-magenta { background: #e0559a; }
 .ink-swatch.is-yellow { background: #f2bd2f; }
 
+.ink-tank strong {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.ink-tank.is-low {
+    border-color: #f0c68f;
+    background: #fff8ec;
+}
+
+.ink-tank.is-low strong { color: #a35d0a; }
+
+.ink-tank.is-unknown strong { color: var(--muted); font-weight: 600; }
+
 .stat-icon {
     display: inline-flex;
     align-items: center;

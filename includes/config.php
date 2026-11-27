@@ -16,7 +16,7 @@ const APP_NAME    = 'PrintFree';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.7.14';
+const APP_VERSION = '1.8.0';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -111,6 +111,13 @@ const PRINT_JOB_STUCK_MINUTES = 45;
 // a jam, so the queue does not feed more photos into a printer that would fail
 // them. The operator is emailed once, then reminded while it lasts.
 const PRINT_SUPPLY_REMINDER_MINUTES = 60;
+
+// Ink levels come from the SNMP bridge on the shop network (Epson Connect has
+// no tank data). A reading older than this is shown as stale, and a tank at or
+// below the low mark turns the Ink card amber. The bridge polls every five
+// minutes by default.
+const PRINTER_INK_STALE_MINUTES = 20;
+const PRINTER_INK_LOW_PERCENT   = 10;
 
 // Fallback sheet time when no completed sheets have been measured yet. High
 // quality 4 x 6 measures 165-199 s on this printer.

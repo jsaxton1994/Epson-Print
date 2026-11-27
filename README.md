@@ -48,6 +48,7 @@ public/customer/     customer area (dashboard, new order, orders, profile)
 includes/            config, database, session, auth, Epson client, layout
                       (outside the web root)
 cron/                CLI-only print queue worker and watchdog
+tools/               SNMP ink bridge for a machine on the shop network (CLI only)
 index.php            redirects to the public site when the root is the docroot
 ```
 
@@ -195,17 +196,55 @@ Printing runs through the Epson Connect API v2 (device authorisation, OAuth2).
 
 Until the printer is linked, orders can still be accepted, managed and marked printed by hand; accepted orders wait for the printer.
 
+### Ink levels over SNMP (shop-network bridge)
+
+Epson Connect API v2 returns a device's model, serial and link state but no tank levels, so the Ink card cannot read them from Epson. The ET-2926 does publish its own Printer MIB over SNMPv2c, so a small script on an always-on machine **on the same network as the printer** reads `prtMarkerSuppliesLevel` and posts the four percentages to the site.
+
+1. **Admin → Printer Settings → Ink bridge (SNMP) → Create token.** Copy the token when it appears: only its SHA-256 hash is stored, so it cannot be shown again. Replacing it stops an old bridge until it is updated.
+2. Copy `tools/snmp.php` and `tools/ink-bridge.php` to the machine beside the printer. It needs PHP 8.1 CLI only — the SNMP codec is bundled, so there is no `php-snmp` extension and no net-snmp binary to install.
+3. Test the read without posting anything:
+
+   ```bash
+   php ink-bridge.php --host 192.168.1.42 --dry-run
+   ```
+
+4. Post every five minutes (the site marks a reading older than `PRINTER_INK_STALE_MINUTES`, 20, as stale):
+
+   ```bash
+   php ink-bridge.php \
+     --url https://snapprints.co.uk/printer-ink.php \
+     --token "$INK_FEED_TOKEN" \
+     --host 192.168.1.42 \
+     --every 300
+   ```
+
+   Run it under systemd, `screen`/`tmux`, or a cron entry instead of `--every` if you prefer; without `--every` it posts once and exits.
+
+Options (or their environment variables): `--host`/`INK_PRINTER_HOST`, `--community`/`INK_SNMP_COMMUNITY` (default `public`), `--port`, `--timeout`, `--retries`, `--model`, `--url`/`INK_FEED_URL`, `--token`/`INK_FEED_TOKEN`, `--every`, `--dry-run`, `--v1` (SNMPv1 instead of v2c). The bridge only ever sends GET/GETNEXT, so the printer is never changed.
+
+The bridge walks `1.3.6.1.2.1.43.11.1.1.6.1` (supply descriptions) to find each tank's index, then reads `.8.1` (max capacity) and `.9.1` (level) for that index and converts levels to percentages, so a level of 27 with a capacity of 60 reads 45%. The Printer MIB sentinels for unknown (`-2`) and some-remaining (`-3`) have no number and show as —. If the printer publishes no useful descriptions, the first four supply indexes are taken as black, cyan, magenta and yellow.
+
+The Ink card shows each tank's percentage, the lowest tank in the headline (amber at or below `PRINTER_INK_LOW_PERCENT`, 10), and when the reading was taken. A reading older than 20 minutes is labelled stale rather than passed off as live. The feed (`public/printer-ink.php`) accepts `POST` only, requires the token as `Authorization: Bearer …` (or `X-Ink-Token`), accepts only 0–100 numbers and stores the reading with its timestamp in the settings table. Nothing is exposed to customers.
+
+`tools/snmp-sim.php` is a local SNMP agent for testing the bridge and the feed without a printer:
+
+```bash
+php tools/snmp-sim.php --port 1161 --levels 51,30,12,3 --max 60 &
+php tools/ink-bridge.php --host 127.0.0.1 --port 1161 --dry-run
+```
+
 ## Security notes
 
 - Passwords use `password_hash()`, sessions use `HttpOnly` + `SameSite` cookies, all forms are CSRF protected.
 - Every query uses prepared statements; output is escaped with `e()`.
-- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/` and `cron/` are blocked with `.htaccess`, and the cron worker refuses HTTP requests itself.
+- Photos are stored in the database and served only through authenticated endpoints (`customer/photo.php`, `admin/photo.php`); `includes/`, `cron/` and `tools/` are blocked with `.htaccess`, and the cron worker and both tools refuse HTTP requests themselves.
+- The ink feed (`public/printer-ink.php`) is not a session endpoint: it requires the bridge token, compares its SHA-256 hash with `hash_equals()`, accepts `POST` and JSON numbers only, and is the only public endpoint that writes without a login.
 - Customers can only ever see their own photos and orders. Uploads are limited to common image names/MIME types, decoded by GD or Imagick, normalised to JPEG/PNG, and capped by a per-file size limit in `includes/config.php`.
 - Admin: deleting a customer or an order also deletes all of its stored photos. On the order page an admin can tick one or more photos and remove them together; the order status is recalculated from what is left and the removal is written to the order timeline. Removing the last photo deletes the empty order. An order that has no photos shows an empty state on both the admin and customer pages, cannot be accepted or sent to the printer, and the customer can still add photos to it while it is `pending`.
 
 ## Customising
 
-- Site name, support email and queue alert address: **Admin → Site Settings**. Default print size/quality and the queue pause switch: **Admin → Service Settings**. Queue monitoring, storage and service health: **Admin → Information**. The Epson Connect card, printer state and link: **Admin → Printer Settings** (Epson publishes no tank levels, so the Ink card names the four EcoTank colours and says the levels are not reported there). Nightly dumps: **Admin → Backup Settings**. New orders default to **High** quality: on the ET-2926, Standard can leave faint banding lines on photo paper, so High is the right default for this service. An administrator can still lower it per order from the order page while it is unprinted.
+- Site name, support email and queue alert address: **Admin → Site Settings**. Default print size/quality and the queue pause switch: **Admin → Service Settings**. Queue monitoring, storage and service health: **Admin → Information**. The Epson Connect card, printer state and link: **Admin → Printer Settings** (Epson publishes no tank levels; the optional SNMP bridge fills the Ink card — see **Ink levels over SNMP**). Nightly dumps: **Admin → Backup Settings**. New orders default to **High** quality: on the ET-2926, Standard can leave faint banding lines on photo paper, so High is the right default for this service. An administrator can still lower it per order from the order page while it is unprinted.
 - An administrator can change an order's print quality from the order page while it is still unprinted (new, queued, printing or failed). The change is written to the order timeline; photos already sent to Epson keep the quality they were sent with, and everything sent afterwards uses the new one. Printed and cancelled orders keep the quality they were printed with.
 - Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 100) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
 - Per-photo upload limit: `MAX_UPLOAD_MB` in `includes/config.php` (Epson allows 10 MB for photo mode). The effective limit is the smaller of this and PHP's `upload_max_filesize` / `post_max_size`.

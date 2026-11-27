@@ -91,6 +91,12 @@ if (is_post()) {
         flash('success', 'Printer unlinked. Credentials were kept so you can reconnect quickly.');
         redirect('admin/printer-settings.php');
     }
+
+    if ($action === 'ink_token') {
+        $_SESSION['ink_token_once'] = ink_feed_new_token();
+        flash('success', 'New bridge token created. Copy it now — only its hash is stored, so it cannot be shown again.');
+        redirect('admin/printer-settings.php');
+    }
 }
 
 $epsonFresh = EpsonClient::fromSettings();
@@ -101,12 +107,30 @@ $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
 $live       = printer_live_status_fresh($epsonFresh);
 $hold       = printer_supply_block();
 
-// Ink and paper come from what the printer reports. Epson Connect API v2 only
-// returns the model, serial and link state, so a tank level is only shown when
-// the printer itself has flagged a stop.
+$inkTokenOnce    = (string) ($_SESSION['ink_token_once'] ?? '');
+unset($_SESSION['ink_token_once']);
+$inkFeedUrl      = absolute_url('printer-ink.php');
+$inkTokenCreated = (string) setting('ink_token_created_at', '');
+
+// Ink levels come from the shop-network SNMP bridge; Epson Connect API v2 only
+// returns the model, serial and link state. The reading keeps its age, and one
+// that is too old says so instead of passing for live.
+$ink      = printer_ink_reading();
 $inkTone  = 'brand';
 $inkValue = 'Levels not reported';
-$inkHint  = 'Epson Connect publishes no tank levels: its device API returns only the model, serial and link state. Read the tank windows or Epson Smart Panel — a job that reports empty ink holds the queue by itself.';
+$inkHint  = 'Epson Connect publishes no tank levels. Run tools/ink-bridge.php on a machine on the shop network and connect it in the Ink bridge panel below.';
+
+if ($ink['has_readings']) {
+    $inkValue = 'Lowest: ' . ucfirst((string) $ink['lowest_colour']) . ' ' . $ink['lowest'] . '%';
+    $inkHint  = 'SNMP (printer)'
+        . ($ink['model'] !== '' ? ' · ' . $ink['model'] : '')
+        . ' · read ' . time_ago((string) $ink['received_at'])
+        . ($ink['stale'] ? ' — stale: the bridge has not posted since' : '');
+
+    if ($ink['lowest'] <= PRINTER_INK_LOW_PERCENT) {
+        $inkTone = 'amber';
+    }
+}
 
 if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
     $inkTone  = 'amber';
@@ -181,10 +205,12 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
             <span class="stat-label">Ink</span>
             <strong class="stat-value"><?= e($inkValue) ?></strong>
             <div class="ink-tanks" role="group" aria-label="Ink tanks">
-                <span class="ink-tank"><span class="ink-swatch is-black"></span>Black</span>
-                <span class="ink-tank"><span class="ink-swatch is-cyan"></span>Cyan</span>
-                <span class="ink-tank"><span class="ink-swatch is-magenta"></span>Magenta</span>
-                <span class="ink-tank"><span class="ink-swatch is-yellow"></span>Yellow</span>
+                <?php foreach (INK_COLOURS as $colour): ?>
+                    <?php $level = $ink['levels'][$colour] ?? null; ?>
+                    <span class="ink-tank<?= $level === null ? ' is-unknown' : ($level <= PRINTER_INK_LOW_PERCENT ? ' is-low' : '') ?>">
+                        <span class="ink-swatch is-<?= e($colour) ?>"></span><?= e(ucfirst($colour)) ?><strong><?= $level === null ? '—' : e($level . '%') ?></strong>
+                    </span>
+                <?php endforeach; ?>
             </div>
             <span class="stat-hint"><?= e($inkHint) ?></span>
         </div>
@@ -309,6 +335,87 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
                         <li>Save the credentials here, then press <strong>Connect <?= e(EPSON_PRINTER_MODEL) ?></strong> and pick the printer on the Epson page.</li>
                         <li>When a photo order arrives, open it and press <strong>Print</strong>. Each photo becomes its own Epson job and is uploaded and started through the API.</li>
                     </ol>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Ink bridge (SNMP)</h3>
+                    <p>Tank levels read beside the printer and posted here</p>
+                </div>
+                <?php if (ink_feed_has_token()): ?>
+                    <span class="badge badge-completed"><?= icon('check', 'badge-icon') ?> Token active</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral"><?= icon('gear', 'badge-icon') ?> Not connected</span>
+                <?php endif; ?>
+            </div>
+            <div class="panel-body">
+                <p class="help">
+                    Epson Connect does not publish tank levels, so the ET-2926's own SNMP interface is read by
+                    <span class="mono">tools/ink-bridge.php</span> on an always-on machine on the shop network.
+                    It posts the four levels here; nothing on this page calls the printer.
+                </p>
+
+                <?php if ($inkTokenOnce !== ''): ?>
+                    <div class="alert alert-success">
+                        <?= icon('wifi') ?>
+                        <div>
+                            <strong>Copy this token now</strong>
+                            <p>Only its hash is stored, so it cannot be shown again. Give it to the bridge as <span class="mono">--token</span> or <span class="mono">INK_FEED_TOKEN</span>.</p>
+                        </div>
+                    </div>
+                    <div class="code-box" style="margin-bottom:18px">
+                        <span><?= e($inkTokenOnce) ?></span>
+                        <button class="copy-btn" type="button" data-copy="<?= e($inkTokenOnce) ?>">Copy</button>
+                    </div>
+                <?php endif; ?>
+
+                <div class="settings-section">
+                    <h3>Feed address</h3>
+                    <div class="code-box" style="margin-bottom:12px">
+                        <span><?= e($inkFeedUrl) ?></span>
+                        <button class="copy-btn" type="button" data-copy="<?= e($inkFeedUrl) ?>">Copy</button>
+                    </div>
+                    <p class="help">
+                        The bridge POSTs <span class="mono">{"black":82,"cyan":74,"magenta":61,"yellow":55}</span>
+                        with the token as <span class="mono">Authorization: Bearer …</span>. Levels are percentages from 0 to 100.
+                    </p>
+
+                    <form method="post"<?= ink_feed_has_token() ? ' data-confirm="Replace the token? A bridge still using the old one stops posting until it is updated."' : '' ?>>
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="ink_token">
+                        <button class="btn btn-sm <?= ink_feed_has_token() ? 'btn-soft' : 'btn-primary' ?>" type="submit">
+                            <?= icon(ink_feed_has_token() ? 'refresh' : 'wifi') ?> <?= ink_feed_has_token() ? 'Replace token' : 'Create token' ?>
+                        </button>
+                    </form>
+
+                    <p class="help mt-2">
+                        <?= ink_feed_has_token()
+                            ? 'Token created ' . e(time_ago($inkTokenCreated)) . '. Replacing it stops the old bridge until it gets the new one.'
+                            : 'No token yet — create one, then start the bridge.' ?>
+                    </p>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Last reading</h3>
+                    <p class="help">
+                        <?php if ($ink['has_readings']): ?>
+                            <?= e(ucfirst($ink['source'] !== '' ? $ink['source'] : 'snmp')) ?><?= $ink['model'] !== '' ? ' · ' . e($ink['model']) : '' ?>
+                            · posted <?= e(time_ago((string) $ink['received_at'])) ?><?= $ink['stale'] ? ' (stale — check the bridge)' : '' ?>:
+                            <?php foreach (INK_COLOURS as $colour): ?>
+                                <?= e(ucfirst($colour)) ?> <?= isset($ink['levels'][$colour]) ? e((string) $ink['levels'][$colour]) . '%' : '—' ?><?= $colour !== 'yellow' ? ' · ' : '' ?>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            Nothing posted yet.
+                        <?php endif; ?>
+                    </p>
+                    <p class="help">On the always-on machine:</p>
+                    <div class="code-box">
+                        <span>php ink-bridge.php --url <?= e($inkFeedUrl) ?> --token YOUR-TOKEN --host 192.168.1.42 --every 300</span>
+                        <button class="copy-btn" type="button" data-copy="php ink-bridge.php --url <?= e($inkFeedUrl) ?> --token YOUR-TOKEN --host 192.168.1.42 --every 300">Copy</button>
+                    </div>
                 </div>
             </div>
         </section>
