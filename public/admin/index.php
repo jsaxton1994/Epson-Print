@@ -148,10 +148,16 @@ $paperTone  = 'brand';
 $paperValue = 'Ready';
 $paperHint  = 'Photo paper loaded; the queue is sending sheets.';
 
-if ($supplyHold['active'] && in_array($supplyHold['reason'], ['media_empty', 'media_jam'], true)) {
+// An empty tray or a jam is the operator's most urgent problem, so it gets a
+// card state and an alert banner at the top of the dashboard.
+$paperStop = printer_paper_stop($supplyHold, $printerReading);
+
+if ($paperStop !== null) {
     $paperTone  = 'amber';
-    $paperValue = $supplyHold['reason'] === 'media_jam' ? 'Paper jam' : 'Out of paper';
-    $paperHint  = 'The queue has been held ' . ($supplyHold['since'] !== '' ? time_ago($supplyHold['since']) : 'just now') . ' until the printer is loaded and the hold is cleared.';
+    $paperValue = $paperStop['reason'] === 'media_jam' ? 'Paper jam' : 'Out of paper';
+    $paperHint  = $paperStop['held']
+        ? 'Printing is held ' . ($paperStop['since'] !== '' ? time_ago($paperStop['since']) : 'just now') . '; load photo paper and clear the hold.'
+        : 'Epson last reported this ' . time_ago((string) $printerReading['checked_at']) . '; load photo paper on the printer.';
 }
 
 $recent = db_all(
@@ -188,7 +194,27 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 <?php endif; ?>
 
-<?php if ($supplyHold['active']): ?>
+<?php if ($paperStop !== null): ?>
+    <div class="banner banner-danger" role="alert">
+        <?= icon('alert') ?>
+        <div>
+            <strong><?= $paperStop['reason'] === 'media_jam' ? 'Paper jam — printing has stopped' : 'The printer is out of photo paper' ?></strong>
+            <p>
+                <?php if ($paperStop['held']): ?>
+                    The printer stopped <?= $paperStop['since'] !== '' ? e(time_ago($paperStop['since'])) : 'just now' ?>.
+                    The queue is held, so no photo fails against an empty tray.
+                <?php else: ?>
+                    Epson last reported the stop <?= !empty($printerReading['checked_at']) ? e(time_ago((string) $printerReading['checked_at'])) : 'just now' ?>.
+                    The next worker pass holds the queue rather than feeding it another sheet.
+                <?php endif; ?>
+                Load photo paper on the <?= e(EPSON_PRINTER_MODEL) ?>, then clear the hold.
+            </p>
+            <div class="banner-actions">
+                <a class="btn btn-danger btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('printer') ?> Load paper &amp; clear the hold</a>
+            </div>
+        </div>
+    </div>
+<?php elseif ($supplyHold['active']): ?>
     <div class="banner banner-danger">
         <?= icon('alert') ?>
         <div>

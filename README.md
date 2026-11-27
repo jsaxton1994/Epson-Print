@@ -156,7 +156,7 @@ A deadline only says how long a run may take, not that it is still doing anythin
 
 ### Paper, ink and jams
 
-When a job reports `media_empty`, `marker_supply_empty` or `media_jam`, the queue stops sending photos instead of feeding the next one into the same problem. The operator is emailed once, reminded hourly, and the dashboard and **Admin → Maintenance** show the hold with a **Clear and continue** button (pressing **Resume** clears it too). The photo already on the printer keeps being tracked; nothing is marked failed because of it. Clearing the hold does not clear the printer — load the paper or change the ink first.
+When a job reports `media_empty`, `marker_supply_empty` or `media_jam`, the queue stops sending photos instead of feeding the next one into the same problem. The operator is emailed once, reminded hourly, and the dashboard and **Admin → Maintenance** show the hold with a **Clear and continue** button (pressing **Resume** clears it too). The dashboard raises the paper stop as a red alert at the top — **The printer is out of photo paper** or **Paper jam — printing has stopped** — with a **Load paper & clear the hold** button, and the Paper card turns amber at the same time. The alert comes from the queue's hold or, before the next worker pass, from a recent Epson reading naming the same stop; a reading older than ten minutes is ignored so paper that has since been loaded cannot raise a false alarm. The photo already on the printer keeps being tracked; nothing is marked failed because of it. Clearing the hold does not clear the printer — load the paper or change the ink first.
 
 ### Customer estimates
 

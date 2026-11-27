@@ -433,6 +433,45 @@ function printer_supply_block(): array
 }
 
 /**
+ * The paper stop currently holding the printer, if any.
+ *
+ * The worker's supply hold is authoritative. A recent Epson reading counts too
+ * — a stopped job names the same reason — so the alert appears before the next
+ * worker pass. An old cached reading is ignored, so paper that has since been
+ * loaded cannot raise a false alarm.
+ *
+ * @param array<string,mixed>|null $hold    supply hold (read from settings when null)
+ * @param array<string,mixed>      $reading cached Epson printer status
+ * @return array{reason:string,held:bool,since:string}|null
+ */
+function printer_paper_stop(?array $hold = null, array $reading = [], int $maxAge = 600): ?array
+{
+    $hold = $hold ?? printer_supply_block();
+
+    if (!empty($hold['active']) && in_array((string) ($hold['reason'] ?? ''), ['media_empty', 'media_jam'], true)) {
+        return [
+            'reason' => (string) $hold['reason'],
+            'held'   => true,
+            'since'  => (string) ($hold['since'] ?? ''),
+        ];
+    }
+
+    $reason = (string) ($reading['job_reason'] ?? '');
+
+    if (!in_array($reason, ['media_empty', 'media_jam'], true) || ($reading['state'] ?? '') !== 'attention') {
+        return null;
+    }
+
+    $checkedAt = strtotime((string) ($reading['checked_at'] ?? '')) ?: 0;
+
+    if ($checkedAt === 0 || (time() - $checkedAt) > $maxAge) {
+        return null;
+    }
+
+    return ['reason' => $reason, 'held' => false, 'since' => ''];
+}
+
+/**
  * Record a paper/ink stop and email the operator about it.
  *
  * Sent once when the stop starts, then reminded hourly while it lasts. Returns
