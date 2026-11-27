@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -127,12 +127,6 @@ const BACKUP_PHOTOS_PER_RUN   = 200;
 const BACKUP_PHOTO_BYTES_RUN  = 200 * 1024 * 1024;
 const BACKUP_MAIL_MAX_BYTES   = 4 * 1024 * 1024;
 
-// A worker run legitimately holds the lock for a whole send slice plus the
-// status batch and a few Epson timeouts, which is longer than the stale
-// threshold. The run publishes this budget as a deadline so a long healthy run
-// reads as working rather than stopped.
-const PRINT_SLICE_BUDGET_SECONDS = PRINT_SEQUENTIAL_SECONDS + STATUS_BATCH_SECONDS + (3 * EPSON_TIMEOUT) + 180;
-
 const PRINT_QUEUE_STALE_MINUTES = 10;
 const PRINT_QUEUE_ORDER_STALL_MINUTES = 20;
 const PRINT_QUEUE_WATCHDOG_STALE_MINUTES = 15;
@@ -160,6 +154,13 @@ const EPSON_API_URL  = 'https://api.epsonconnect.com/api/2';
 // Epson calls are slow from shared hosting, and uploads move the whole photo in
 // one request, so both get a long timeout and are retried on a transport error.
 const EPSON_TIMEOUT        = 90;
+
+// A worker run legitimately holds the lock for a whole send slice plus the
+// status batch and a few Epson timeouts, which is longer than the stale
+// threshold. The run publishes this budget as a deadline so a long healthy run
+// reads as working rather than stopped. Defined after EPSON_TIMEOUT: a constant
+// cannot use one declared later in this file.
+const PRINT_SLICE_BUDGET_SECONDS = PRINT_SEQUENTIAL_SECONDS + STATUS_BATCH_SECONDS + (3 * EPSON_TIMEOUT) + 180;
 const EPSON_CONNECT_TIMEOUT   = 20;  // TCP retransmits need longer than 10 s
 const EPSON_CIRCUIT_SECONDS   = 60;  // fail-fast window after repeated transport failures
 const EPSON_CIRCUIT_THRESHOLD = 2;   // consecutive failures that open the circuit
