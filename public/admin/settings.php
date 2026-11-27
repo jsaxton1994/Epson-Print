@@ -422,6 +422,49 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                         </div>
                     <?php endif; ?>
 
+                    <?php $notifyDebug = epson_notify_debug_entries(6); ?>
+                    <details class="debug-block" style="margin-bottom:14px">
+                        <summary style="cursor:pointer;font-weight:600;font-size:.9rem">Temporary diagnostics — requests that reached the webhook</summary>
+                        <p class="help">
+                            Added while the host investigates why Epson's callbacks never arrive. A row here means a request got
+                            past the host's bot protection and into PHP; <span class="mono">token_missing</span> /
+                            <span class="mono">token_mismatch</span> means it was turned away at the door, and any other outcome
+                            carries the body Epson sent. Remove this block together with the diagnostic helpers when it is no longer needed.
+                        </p>
+                        <?php if ($notifyDebug === []): ?>
+                            <p class="muted" style="font-size:.82rem">No request has reached the endpoint yet.</p>
+                        <?php else: ?>
+                            <div class="table-wrap">
+                                <table class="table">
+                                    <thead><tr><th>Time</th><th>Outcome</th><th>HTTP</th><th>Token</th><th>Request</th></tr></thead>
+                                    <tbody>
+                                        <?php foreach ($notifyDebug as $row): ?>
+                                            <?php $rowAt = strtotime((string) ($row['at'] ?? '')) ?: time(); ?>
+                                            <tr>
+                                                <td class="muted"><?= e(date('H:i:s', $rowAt)) ?></td>
+                                                <td>
+                                                    <?= e((string) ($row['outcome'] ?? '')) ?>
+                                                    <?php if (!empty($row['note'])): ?>
+                                                        <br><span class="muted" style="font-size:.75rem"><?= e((string) $row['note']) ?></span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><?= (int) ($row['status'] ?? 0) ?></td>
+                                                <td><?= e((string) ($row['token'] ?? '')) ?></td>
+                                                <td style="max-width:380px">
+                                                    <span class="muted" style="font-size:.75rem;word-break:break-word">
+                                                        <?= e((string) ($row['method'] ?? '')) ?> · <?= e((string) ($row['content_type'] ?? '')) ?> · <?= (int) ($row['length'] ?? 0) ?> B<br>
+                                                        UA: <?= e((string) ($row['user_agent'] ?? '')) ?><br>
+                                                        body: <?= e((string) ($row['body'] ?? '')) ?>
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </details>
+
                     <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap">
                         <?php if ($epsonFresh->isConnected()): ?>
                             <?php if (epson_notifications_enabled()): ?>

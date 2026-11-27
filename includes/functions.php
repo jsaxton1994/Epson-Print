@@ -369,6 +369,33 @@ function epson_log_notification(array $entry): void
 }
 
 /**
+ * TEMPORARY diagnostic: remember the last requests that reached the webhook.
+ * Remove this and epson_notify_debug_entries() once the host has finished
+ * investigating why Epson callbacks are blocked.
+ */
+function epson_notify_debug_log(array $entry): void
+{
+    $entries = json_decode((string) setting('epson_notify_debug', ''), true);
+    $entries = is_array($entries) ? $entries : [];
+    array_unshift($entries, $entry);
+
+    set_setting('epson_notify_debug', json_encode(
+        array_slice($entries, 0, 20),
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+    ));
+}
+
+/**
+ * @return list<array<string,mixed>>
+ */
+function epson_notify_debug_entries(int $limit = 8): array
+{
+    $entries = json_decode((string) setting('epson_notify_debug', ''), true);
+
+    return is_array($entries) ? array_slice($entries, 0, $limit) : [];
+}
+
+/**
  * A counter the webhook bumps when it finishes a sheet, so the worker's wait
  * can be cut short instead of sleeping through the whole safety interval.
  */
