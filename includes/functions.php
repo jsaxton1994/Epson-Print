@@ -1503,6 +1503,13 @@ function queue_health(): array
     $liveness    = (string) setting('print_queue_liveness', '');
     $livenessTs  = $liveness !== '' ? strtotime($liveness) : false;
     $livenessAge = $livenessTs === false ? null : max(0, $now - $livenessTs);
+
+    // Between two runs the newest activity is when the last one finished; the
+    // start time alone can be a whole slice old by then.
+    $lastFinished   = (string) setting('print_queue_last_finished', '');
+    $lastFinishedTs = $lastFinished !== '' ? strtotime($lastFinished) : false;
+    $activityTs     = max($lastRunTs !== false ? $lastRunTs : 0, $lastFinishedTs !== false ? $lastFinishedTs : 0, $livenessTs !== false ? $livenessTs : 0);
+    $activityAge    = $activityTs > 0 ? max(0, $now - $activityTs) : null;
     // A run always writes its first heartbeat as it starts, so a missing one
     // means the run predates this check (or died before writing): fall back to
     // the last-run threshold rather than calling it hung on no evidence.
@@ -1530,7 +1537,8 @@ function queue_health(): array
         'last_error'        => (string) setting('print_queue_last_error', ''),
         'worker_never_run'  => $lastRunTs === false,
         'worker_stale'      => $runHung
-            || ($lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter && !$runInProgress),
+            || ($activityAge !== null && $activityAge > $staleAfter && !$runInProgress),
+        'last_activity_age' => $activityAge,
         'run_in_progress'   => $runInProgress,
         'slice_deadline'    => $sliceUntil === false ? '' : date('Y-m-d H:i:s', $sliceUntil),
         'slice_left'        => $sliceUntil === false ? null : max(0, $sliceUntil - $now),
