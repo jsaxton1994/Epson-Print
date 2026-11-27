@@ -24,19 +24,32 @@ $respond = static function (int $code, array $body): never {
     exit;
 };
 
+$method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $secret = (string) setting('epson_notify_secret', '');
 $token  = (string) ($_GET['token'] ?? '');
+$raw    = $method === 'POST' ? (string) file_get_contents('php://input', false, null, 0, 32768) : '';
 
 if ($secret === '' || $token === '' || !hash_equals($secret, $token)) {
+    // Record that something arrived but was not accepted, so a callback that
+    // loses its query string is visible instead of silently 404ing.
+    epson_log_notification([
+        'at'       => now(),
+        'job_id'   => '',
+        'status'   => 'rejected',
+        'photo_id' => null,
+        'matched'  => false,
+        'result'   => mb_substr($method . ' query=' . (implode(',', array_keys($_GET)) ?: 'none')
+            . ' ua=' . mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 40)
+            . ' body=' . mb_substr(preg_replace('/\s+/', ' ', $raw) ?? '', 0, 90), 0, 240),
+    ]);
+
     // 404 rather than 403: do not confirm that the path exists.
     $respond(404, ['ok' => false]);
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+if ($method !== 'POST') {
     $respond(405, ['ok' => false, 'error' => 'POST only']);
 }
-
-$raw = (string) file_get_contents('php://input', false, null, 0, 32768);
 
 if ($raw === '') {
     $respond(400, ['ok' => false, 'error' => 'Empty body']);
