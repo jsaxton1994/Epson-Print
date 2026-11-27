@@ -29,8 +29,9 @@ function backup_tables(): array
  *
  * The first choice is a sibling of the web root, so the files cannot be fetched
  * over HTTP and a deployment that copies into public_html cannot overwrite them.
- * If that directory cannot be created or written, an in-app folder is used; it
- * is still denied by .htaccess.
+ * If that directory cannot be created or written (some hosts confine PHP to the
+ * docroot), `public_html/backups` is used instead; it is denied by .htaccess and
+ * is not part of the repository, so a deploy does not remove it.
  *
  * @return array{dir:string,reliable:bool}
  */
@@ -38,7 +39,7 @@ function backup_directory(): array
 {
     $outside = dirname(__DIR__, 2) . '/backups';
 
-    foreach ([$outside, dirname(__DIR__) . '/storage/backups'] as $index => $dir) {
+    foreach ([$outside, dirname(__DIR__) . '/backups'] as $index => $dir) {
         if (!is_dir($dir)) {
             @mkdir($dir, 0700, true);
         }
