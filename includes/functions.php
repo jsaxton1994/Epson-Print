@@ -282,7 +282,14 @@ function epson_log_request(array $entry): void
         $stats['consecutive']   = 0;
         $stats['circuit_until'] = 0;
         $stats['last_ok_at']    = (string) $entry['at'];
-        epson_outage_note_success();
+
+        // Only a queue call proves printing can continue. A settings or token
+        // call can succeed during a flapping connection while every job status
+        // check still times out, and that must not end the outage.
+        $path = (string) ($entry['path'] ?? '');
+        if (str_starts_with($path, '/printing/jobs') || str_starts_with($path, '/printing/devices')) {
+            epson_outage_note_success();
+        }
     } else {
         $stats['failed']        = (int) $stats['failed'] + 1;
         $stats['consecutive']   = (int) $stats['consecutive'] + 1;
