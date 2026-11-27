@@ -976,15 +976,15 @@ function queue_health(): array
 }
 
 /**
- * What the printer is doing right now, for the admin dashboard.
+ * What the printer is doing right now, for Maintenance and on-demand checks.
  *
  * Combines the Epson device check with the live status of the job on the
  * printer, so the dashboard can say "printing photo 4 of 12" or "out of paper"
  * instead of only "linked". Epson prints one photo per job, so the job being
  * watched is the photo with status "printing".
  *
- * Cached for PRINT_STATUS_CACHE_SECONDS so repeated dashboard polls (and
- * several admins) do not each wait on a slow Epson API call.
+ * Cached for PRINT_STATUS_CACHE_SECONDS so repeated page loads (and several
+ * admins) do not each wait on a slow Epson API call.
  *
  * @return array<string,mixed>
  */
@@ -1000,7 +1000,7 @@ function printer_live_status(?EpsonClient $epson = null, bool $allowNetwork = tr
     }
 
     // Page loads never wait on Epson: they show the last known state (marked
-    // stale) and the dashboard's own poll or the Refresh button does the call.
+    // stale) and the Refresh button does the call.
     if (!$allowNetwork) {
         if (is_array($cached)) {
             $cached['cached'] = true;

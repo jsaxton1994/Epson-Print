@@ -26,9 +26,6 @@ $counts = db_one(
 $queueHealth = queue_health();
 $epsonOutage = epson_outage_state();
 $attention = orders_needing_attention();
-$queueWatchdogState = $queueHealth['watchdog_last_run'] === null
-    ? 'Never run'
-    : ($queueHealth['watchdog_stale'] ? 'Stale' : ($queueHealth['watchdog_status'] === 'error' ? 'Failing' : 'Healthy'));
 
 $printedToday = (int) db_val(
     "SELECT COUNT(*) FROM orders WHERE status = 'completed' AND printed_at >= ?",

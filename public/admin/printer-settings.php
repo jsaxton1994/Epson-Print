@@ -105,8 +105,8 @@ $hold       = printer_supply_block();
 // returns the model, serial and link state, so a tank level is only shown when
 // the printer itself has flagged a stop.
 $inkTone  = 'brand';
-$inkValue = 'No ink data from Epson';
-$inkHint  = 'Epson Connect has no ink fields at all: its device API returns only the model, serial and link state. Check the tanks or Epson Smart Panel — a job that reports empty ink holds the queue by itself.';
+$inkValue = 'Levels not reported';
+$inkHint  = 'Epson Connect publishes no tank levels: its device API returns only the model, serial and link state. Read the tank windows or Epson Smart Panel — a job that reports empty ink holds the queue by itself.';
 
 if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
     $inkTone  = 'amber';
@@ -151,7 +151,7 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
     </div>
     <div class="device-meta">
         <span class="device-chip"><?= icon('image') ?> Photo mode</span>
-        <span class="device-chip"><?= icon('droplet') ?> No tank data from Epson</span>
+        <span class="device-chip"><?= icon('droplet') ?> 4-colour EcoTank</span>
         <?php if (setting('accepting_orders', '1') === '1'): ?>
             <span class="device-chip"><?= icon('check') ?> Queue open</span>
         <?php else: ?>
@@ -175,7 +175,20 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
 
 <div class="stats-grid is-stacked">
     <?php stat_card('Printer', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
-    <?php stat_card('Ink', $inkValue, 'droplet', $inkTone, $inkHint); ?>
+    <div class="stat-card tone-<?= e($inkTone) ?>">
+        <div class="stat-icon"><?= icon('droplet') ?></div>
+        <div class="stat-body">
+            <span class="stat-label">Ink</span>
+            <strong class="stat-value"><?= e($inkValue) ?></strong>
+            <div class="ink-tanks" role="group" aria-label="Ink tanks">
+                <span class="ink-tank"><span class="ink-swatch is-black"></span>Black</span>
+                <span class="ink-tank"><span class="ink-swatch is-cyan"></span>Cyan</span>
+                <span class="ink-tank"><span class="ink-swatch is-magenta"></span>Magenta</span>
+                <span class="ink-tank"><span class="ink-swatch is-yellow"></span>Yellow</span>
+            </div>
+            <span class="stat-hint"><?= e($inkHint) ?></span>
+        </div>
+    </div>
     <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
 </div>
 

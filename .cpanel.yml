@@ -8,5 +8,6 @@ deployment:
     - /bin/rm -f "$DEPLOYPATH/public/epson-notify.php"
     - /bin/rm -f "$DEPLOYPATH/check-printer-settings.png"
     - /bin/rm -f "$DEPLOYPATH/public/admin/ink-probe.php"
+    - /bin/rm -f "$DEPLOYPATH/public/admin/printer-status.php"
     - /bin/rm -rf "$DEPLOYPATH/database"
     - /bin/rm -rf "$DEPLOYPATH/storage"
