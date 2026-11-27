@@ -268,9 +268,6 @@
     animation: floating-centred 7.5s ease-in-out infinite;
 }
 
-.sheet-top { display: flex; gap: 5px; margin-bottom: 20px; }
-.sheet-dot { width: 6px; height: 6px; border-radius: 50%; background: #e3e9f4; }
-
 .sheet-line {
     height: 7px;
     border-radius: 99px;
@@ -296,22 +293,7 @@
 
 .sheet-caption .sheet-line { margin-bottom: 8px; }
 .w-40 { width: 40%; }
-
-.w-100 { width: 100%; }
-.w-95 { width: 95%; }
-.w-90 { width: 90%; }
-.w-85 { width: 85%; }
-.w-80 { width: 80%; }
 .w-70 { width: 70%; }
-.w-60 { width: 60%; }
-
-.sheet-block {
-    height: 66px;
-    border-radius: 10px;
-    margin: 18px 0;
-    background: linear-gradient(135deg, #eef3ff, #e6f8f5);
-    border: 1px solid #eaf0fb;
-}
 
 .sheet-badge {
     position: absolute;
@@ -1042,37 +1024,6 @@
 .auth-side h2 { position: relative; color: #fff; font-size: 1.45rem; margin-bottom: 8px; }
 .auth-side > p { position: relative; color: rgba(255, 255, 255, .72); font-size: .89rem; margin-bottom: 22px; }
 
-.demo-card {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 13px 15px;
-    margin-bottom: 10px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, .08);
-    border: 1px solid rgba(255, 255, 255, .15);
-    transition: background var(--speed) var(--ease), border-color var(--speed) var(--ease);
-}
-
-.demo-card:hover { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .24); }
-
-.demo-role {
-    display: block;
-    font-size: .65rem;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: #8ff0e2;
-    font-weight: 700;
-    margin-bottom: 2px;
-}
-
-.demo-card strong { display: block; font-size: .85rem; color: #fff; font-weight: 600; }
-.demo-card .mono { font-size: .76rem; color: rgba(255, 255, 255, .6); }
-.demo-card .btn { flex: none; }
-
 .auth-points {
     position: relative;
     z-index: 1;
@@ -1159,7 +1110,6 @@
     .hero-stat strong { font-size: 1.15rem; }
     .print-demo { height: 390px; }
     .print-sheet { height: 288px; width: min(240px, 68%); padding: 12px; }
-    .sheet-block { height: 52px; margin: 12px 0; }
     .printer { height: 148px; }
     .printer-lines { top: 66px; }
     .chip-a { top: 14px; right: -2px; }
@@ -1181,8 +1131,6 @@
     .auth-card { padding: 28px 22px; }
     .auth-side { padding: 28px 22px; }
     .auth-card h1 { font-size: 1.55rem; }
-    .demo-card { flex-wrap: wrap; }
-    .demo-card .btn { width: 100%; }
 }
 
 @media (max-width: 520px) {

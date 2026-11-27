@@ -13,11 +13,10 @@ declare(strict_types=1);
  * ---------------------------------------------------------------------- */
 
 const APP_NAME    = 'PrintFree';
-const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.5.3';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -79,8 +78,6 @@ const MAX_ORDER_STORAGE_MB = 5000;
 
 // Printing and status checks work through a slice per request, then ask the
 // admin to continue, so a 100-photo order cannot time out one request.
-const PRINT_BATCH_MAX = 10;
-const PRINT_BATCH_SECONDS = 20;
 const STATUS_BATCH_MAX = 25;
 const STATUS_BATCH_SECONDS = 20;
 

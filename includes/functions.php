@@ -1844,18 +1844,6 @@ function order_storage_bytes(int $orderId): int
     );
 }
 
-/**
- * First photo of an order — used for thumbnails and the order summary.
- */
-function primary_photo(int $orderId): ?array
-{
-    return db_one(
-        'SELECT ' . order_photo_columns() . '
-         FROM order_photos WHERE order_id = ? ORDER BY position ASC, id ASC LIMIT 1',
-        [$orderId]
-    );
-}
-
 function order_photo_mime(array $photo): string
 {
     $mime = strtolower(trim((string) ($photo['mime_type'] ?? '')));

@@ -309,19 +309,6 @@ function app_end(): void
  |  Small content components
  * ---------------------------------------------------------------------- */
 
-function page_heading(string $title, string $subtitle = '', string $actions = ''): void
-{
-    ?>
-    <div class="page-head">
-        <div>
-            <h2><?= e($title) ?></h2>
-            <?php if ($subtitle !== ''): ?><p><?= e($subtitle) ?></p><?php endif; ?>
-        </div>
-        <?php if ($actions !== ''): ?><div class="page-head-actions"><?= $actions ?></div><?php endif; ?>
-    </div>
-    <?php
-}
-
 function stat_card(string $label, string $value, string $iconName, string $tone = 'brand', string $hint = ''): void
 {
     ?>

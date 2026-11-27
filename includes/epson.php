@@ -168,24 +168,6 @@ final class EpsonClient
     }
 
     /**
-     * Create one print job for one photo, upload the image and start printing.
-     *
-     * Epson uploads a single file per job (`File=1.jpg`), so an order with
-     * several photos becomes one job per photo.
-     *
-     * @param array{reference:string,paper_size:string,color_mode:string,print_quality:string,borderless:int} $order
-     * @param array{file_name:string,position:int} $photo
-     * @return array{jobId:string,uploadUri:string}
-     */
-    public function printPhoto(array $order, array $photo): array
-    {
-        $job = $this->preparePhoto($order, $photo);
-        $this->startPhoto($job);
-
-        return $job;
-    }
-
-    /**
      * Create the job and upload the photo without printing it, so the upload can
      * happen while the previous sheet is still on the printer.
      */
@@ -930,16 +912,6 @@ final class EpsonClient
 
         return 'Epson Connect returned HTTP ' . $status . '.';
     }
-}
-
-function epson_configured(): bool
-{
-    return EpsonClient::fromSettings()->isConfigured();
-}
-
-function epson_connected(): bool
-{
-    return EpsonClient::fromSettings()->isConnected();
 }
 
 /**
