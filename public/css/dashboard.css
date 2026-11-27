@@ -247,7 +247,7 @@
 }
 
 .stats-grid.is-stacked .stat-card {
-    align-items: center;
+    align-items: flex-start;
     padding: 16px 20px;
 }
 
