@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.65';
+const APP_VERSION = '1.3.66';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -92,7 +92,13 @@ const STATUS_BATCH_SECONDS = 20;
 const PRINT_SEQUENTIAL_SECONDS = 900;
 const PRINT_POLL_SECONDS      = 5;   // while a sheet has just started
 const PRINT_POLL_FAST_SECONDS = 60;  // poll every PRINT_POLL_SECONDS for this long
-const PRINT_POLL_SLOW_SECONDS = 8;   // then back off a little: still catch the finish quickly
+const PRINT_POLL_SLOW_SECONDS = 20;  // the long middle: stay light while the route to Epson is fragile
+// A High-quality 4 x 6 sheet finishes at about three minutes, so only the last
+// stretch is polled closely: enough to start the next sheet within seconds,
+// without multiplying connections through an edge that is still dropping some.
+const PRINT_POLL_TAIL_START_SECONDS = 140;
+const PRINT_POLL_TAIL_END_SECONDS   = 260;  // longer sheets fall back to the slow interval
+const PRINT_POLL_TAIL_SECONDS       = 5;
 const PRINT_POLL_SAFETY_SECONDS = 20; // safety net when Epson pushes job updates
 
 // How long the dashboard reuses a printer status before asking Epson again.

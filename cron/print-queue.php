@@ -270,8 +270,10 @@ try {
                 }
 
                 // Poll quickly at the start of a sheet so a short job is noticed
-                // at once, then slow down: a High-quality photo takes minutes, and
-                // every check is a fresh connection Epson may drop.
+                // at once, keep the long middle light, then watch closely again
+                // as the sheet nears its usual finish time. That keeps the gap
+                // between sheets short without multiplying connections through
+                // a route to Epson that is still dropping some.
                 $pollSeconds = PRINT_POLL_SECONDS;
                 $startedAt   = !empty($printing['print_started_at'])
                     ? strtotime((string) $printing['print_started_at'])
@@ -281,8 +283,14 @@ try {
                     // Epson pushes each completion to the webhook, so this check
                     // is only a safety net for a missed notification.
                     $pollSeconds = PRINT_POLL_SAFETY_SECONDS;
-                } elseif ($startedAt !== false && time() - $startedAt > PRINT_POLL_FAST_SECONDS) {
-                    $pollSeconds = PRINT_POLL_SLOW_SECONDS;
+                } elseif ($startedAt !== false) {
+                    $elapsed = time() - $startedAt;
+
+                    if ($elapsed >= PRINT_POLL_TAIL_START_SECONDS && $elapsed <= PRINT_POLL_TAIL_END_SECONDS) {
+                        $pollSeconds = PRINT_POLL_TAIL_SECONDS;
+                    } elseif ($elapsed > PRINT_POLL_FAST_SECONDS) {
+                        $pollSeconds = PRINT_POLL_SLOW_SECONDS;
+                    }
                 }
 
                 // The status call itself takes seconds, so only wait what is left

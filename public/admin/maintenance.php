@@ -63,25 +63,58 @@ if (is_post()) {
              LIMIT 30'
         );
 
+        // Rows arrive newest first, so the previous loop iteration is always the
+        // sheet that came after this one: that is what the gap is measured against.
+        $prevStart = null;
         $prevPrint = null;
+        $printSecs = [];
+        $gapSecs   = [];
         $out       = ['at' => now(), 'worker_last_run' => (string) setting('print_queue_last_run', ''), 'sheets' => []];
 
         foreach ($rows as $row) {
             $printedTs = strtotime((string) $row['printed_at']) ?: null;
             $startedTs = !empty($row['print_started_at']) ? (strtotime((string) $row['print_started_at']) ?: null) : null;
+            $print     = $startedTs !== null && $printedTs !== null ? $printedTs - $startedTs : null;
+            $gap       = $prevStart !== null && $printedTs !== null ? $prevStart - $printedTs : null;
+
+            if ($print !== null) {
+                $printSecs[] = $print;
+            }
+
+            if ($gap !== null && $gap >= 0) {
+                $gapSecs[] = $gap;
+            }
 
             $out['sheets'][] = [
                 'reference'    => (string) $row['reference'],
                 'position'     => (int) $row['position'],
                 'started'      => $row['print_started_at'],
                 'printed'      => (string) $row['printed_at'],
-                'print_secs'   => $startedTs !== null && $printedTs !== null ? $printedTs - $startedTs : null,
-                'gap_secs'     => $prevPrint !== null && $startedTs !== null ? $startedTs - $prevPrint : null,
-                'since_prev'   => $prevPrint !== null && $printedTs !== null ? $printedTs - $prevPrint : null,
+                'print_secs'   => $print,
+                'gap_after'    => $gap,
+                'since_prev'   => $prevPrint !== null && $printedTs !== null ? $prevPrint - $printedTs : null,
             ];
 
+            $prevStart = $startedTs;
             $prevPrint = $printedTs;
         }
+
+        $avgPrint = $printSecs !== [] ? array_sum($printSecs) / count($printSecs) : null;
+        $avgGap   = $gapSecs !== [] ? array_sum($gapSecs) / count($gapSecs) : null;
+
+        $out['averages'] = [
+            'print_secs' => $avgPrint !== null ? round($avgPrint, 1) : null,
+            'gap_secs'   => $avgGap !== null ? round($avgGap, 1) : null,
+            'cycle_secs' => $avgPrint !== null && $avgGap !== null ? round($avgPrint + $avgGap, 1) : null,
+            'per_hour'   => $avgPrint !== null && $avgGap !== null && ($avgPrint + $avgGap) > 0
+                ? round(3600 / ($avgPrint + $avgGap), 1)
+                : null,
+        ];
+
+        $out['printed_last_hour'] = (int) db_val(
+            'SELECT COUNT(*) FROM order_photos WHERE printed_at IS NOT NULL AND printed_at >= ?',
+            [date('Y-m-d H:i:s', time() - 3600)]
+        );
 
         echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         exit;
