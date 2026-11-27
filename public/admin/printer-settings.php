@@ -97,15 +97,18 @@ if (is_post()) {
 $epsonFresh = EpsonClient::fromSettings();
 $deviceName = $epsonFresh->deviceName();
 $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
-$live       = printer_live_status($epsonFresh, false);
+// This page asks Epson every time it opens, so the cards describe the printer
+// now rather than whatever the dashboard last cached.
+set_setting('printer_status_cache', '');
+$live       = printer_live_status($epsonFresh);
 $hold       = printer_supply_block();
 
 // Ink and paper come from what the printer reports. Epson Connect API v2 only
 // returns the model, serial and link state, so a tank level is only shown when
 // the printer itself has flagged a stop.
 $inkTone  = 'brand';
-$inkValue = 'Not reported';
-$inkHint  = 'Epson Connect reports only the model, serial and link — check the tanks or Epson Smart Panel.';
+$inkValue = 'No ink data from Epson';
+$inkHint  = 'Epson Connect has no ink fields at all: its device API returns only the model, serial and link state. Check the tanks or Epson Smart Panel — a job that reports empty ink holds the queue by itself.';
 
 if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
     $inkTone  = 'amber';

@@ -3,7 +3,7 @@
  * The signed-in administrator's own account: name, email and password.
  *
  * Reached from the avatar in the top bar, so it is one click from anywhere in
- * the admin area rather than buried in Settings.
+ * the admin area rather than buried among the settings pages.
  */
 
 declare(strict_types=1);

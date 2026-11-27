@@ -122,7 +122,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <?= icon('printer') ?>
         <div>
             <strong>Printer credentials saved — one link to go</strong>
-            <p>Authorise <?= e(EPSON_PRINTER_MODEL) ?> from Settings so photo jobs can be sent without manual steps.</p>
+            <p>Authorise <?= e(EPSON_PRINTER_MODEL) ?> in Printer Settings so photo jobs can be sent without manual steps.</p>
             <div class="banner-actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('wifi') ?> Connect the printer</a>
             </div>
@@ -468,7 +468,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <span class="device-chip"><?= icon('check') ?> Photo mode</span>
                     <span class="device-chip"><?= icon('wifi') ?> Cloud linked</span>
                 <?php else: ?>
-                    <span class="device-chip"><?= icon('gear') ?> Add credentials in Settings</span>
+                    <span class="device-chip"><?= icon('gear') ?> Add credentials in Printer Settings</span>
                 <?php endif; ?>
             </div>
             <div class="device-actions">

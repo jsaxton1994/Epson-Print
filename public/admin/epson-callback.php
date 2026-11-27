@@ -17,7 +17,7 @@ unset($_SESSION['epson_state'], $_SESSION['epson_state_time']);
 // Epson's redirect may or may not echo the state value. When it is absent we
 // still bind the callback to this admin session and require a fresh handshake.
 if ($storedState === '' || ($state !== '' && !hash_equals($storedState, $state)) || (time() - $issuedAt) > 900) {
-    flash('error', 'That Epson sign-in link has expired. Start the connection again from Settings.');
+    flash('error', 'That Epson sign-in link has expired. Start the connection again from Printer Settings.');
     redirect('admin/printer-settings.php');
 }
 

@@ -79,7 +79,7 @@ if (is_post()) {
 
     if (in_array($action, ['print', 'print_photo', 'reprint'], true)) {
         if (!$epson->isConnected()) {
-            flash('error', 'Connect the printer in Settings before sending jobs.');
+            flash('error', 'Connect the printer in Printer Settings before sending jobs.');
             redirect($back);
         }
 
@@ -768,7 +768,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                 <span class="device-icon"><?= icon('printer') ?></span>
                 <div>
                     <h3><?= e($epson->isConnected() ? $epson->deviceName() : EPSON_PRINTER_MODEL) ?></h3>
-                    <p><?= $epson->isConnected() ? 'Epson Connect API v2 · photo mode' : 'Connect it in Settings' ?></p>
+                    <p><?= $epson->isConnected() ? 'Epson Connect API v2 · photo mode' : 'Connect it in Printer Settings' ?></p>
                 </div>
             </div>
             <div class="device-actions">
