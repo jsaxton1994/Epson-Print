@@ -258,7 +258,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                 Photos stay queued in order and printing continues when you resume.
             </p>
             <div class="banner-actions">
-                <a class="btn btn-soft btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('wrench') ?> Maintenance &amp; resume</a>
+                <a class="btn btn-soft btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('wrench') ?> Maintenance mode</a>
             </div>
         </div>
     </div>

@@ -210,7 +210,6 @@ function app_start(string $role, string $active, string $title, string $subtitle
             'dashboard' => ['label' => 'Dashboard', 'href' => 'admin/index.php', 'icon' => 'home'],
             'orders'    => ['label' => 'Orders', 'href' => 'admin/orders.php', 'icon' => 'layers'],
             'customers' => ['label' => 'Customers', 'href' => 'admin/customers.php', 'icon' => 'users'],
-            'maintenance' => ['label' => 'Maintenance', 'href' => 'admin/maintenance.php', 'icon' => 'wrench'],
             'service-stats' => ['label' => 'Service Stats', 'href' => 'admin/service-stats.php', 'icon' => 'tiro'],
         ]
         : [

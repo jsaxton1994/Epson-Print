@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
-require_admin();
+$admin = require_admin();
 $epson = EpsonClient::fromSettings();
 
 $defaultRedirect = absolute_url('admin/epson-callback.php');
@@ -115,6 +115,18 @@ if (is_post()) {
 
         redirect('admin/printer-settings.php');
     }
+
+    if ($action === 'maintenance_on') {
+        pause_printing((string) $admin['name'], input('note'));
+        flash('success', 'Maintenance mode enabled. A sheet already on the printer finishes; nothing new is sent until it is turned off.');
+        redirect('admin/printer-settings.php');
+    }
+
+    if ($action === 'maintenance_off') {
+        resume_printing((string) $admin['name']);
+        flash('success', 'Maintenance mode off. The queue carries on with the oldest accepted order.');
+        redirect('admin/printer-settings.php');
+    }
 }
 
 $epsonFresh = EpsonClient::fromSettings();
@@ -145,6 +157,9 @@ $edgePins       = array_values(array_unique(array_filter([
 // the dashboard.
 $ink = printer_ink_reading();
 
+$maintenance   = printing_pause_info();
+$pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
+
 app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926 link, the ink bridge and the credentials behind them.');
 ?>
 
@@ -159,6 +174,54 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926 li
 
 <div class="settings-layout">
     <div class="stack">
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Maintenance mode</h3>
+                    <p>Keep the queue off the printer while you clean or reload it</p>
+                </div>
+                <?php if ($maintenance['paused']): ?>
+                    <span class="badge badge-pending"><?= icon('clock', 'badge-icon') ?> On</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral"><?= icon('check', 'badge-icon') ?> Off</span>
+                <?php endif; ?>
+            </div>
+            <div class="panel-body">
+                <?php if ($maintenance['paused']): ?>
+                    <p class="muted" style="margin-top:0">
+                        Enabled <?= $maintenance['at'] !== '' ? e(time_ago($maintenance['at'])) : 'just now' ?><?= $maintenance['by'] !== '' ? ' by ' . e($maintenance['by']) : '' ?><?= $maintenance['note'] !== '' ? ' — ' . e($maintenance['note']) : '' ?>.
+                        The worker still records the sheet already on the printer but sends nothing new, so photos keep their place.
+                    </p>
+                    <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap">
+                        <form method="post">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="maintenance_off">
+                            <button class="btn btn-primary btn-sm" type="submit"><?= icon('check') ?> Disable maintenance mode</button>
+                        </form>
+                        <a class="btn btn-soft btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('wrench') ?> Cleaning steps</a>
+                    </div>
+                <?php else: ?>
+                    <p class="muted" style="margin-top:0">
+                        Turn this on before a head cleaning, nozzle check or paper change: nothing new is sent to
+                        <?= e(EPSON_PRINTER_MODEL) ?> until you turn it off, and <span class="mono">Send now</span>/<span class="mono">Print</span> are refused meanwhile.
+                    </p>
+                    <form method="post" style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="maintenance_on">
+                        <label class="field" style="width:100%;max-width:420px;margin:0">
+                            <span class="field-label">Reason (optional)</span>
+                            <input class="input" type="text" name="note" maxlength="200" placeholder="e.g. head cleaning after banding">
+                        </label>
+                        <button class="btn btn-soft" type="submit"><?= icon('clock') ?> Enable maintenance mode</button>
+                    </form>
+                <?php endif; ?>
+                <p class="help" style="margin-bottom:0">
+                    <?= $pendingPhotos ?> photo<?= $pendingPhotos === 1 ? '' : 's' ?> waiting ·
+                    <a href="<?= e(url('admin/maintenance.php')) ?>">nozzle check and head cleaning steps</a>
+                </p>
+            </div>
+        </section>
+
         <section class="panel">
             <div class="panel-head">
                 <div>
