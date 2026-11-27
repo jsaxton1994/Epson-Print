@@ -160,6 +160,68 @@ function set_setting(string $key, ?string $value): void
     settings_all(true);
 }
 
+/**
+ * Delete settings left behind by features that no longer exist.
+ *
+ * The relay, the heartbeat ping, Epson job notifications and the ready email
+ * were removed in 1.5.0, but their rows are still in the settings table on an
+ * existing install. Nothing reads them any more, yet they are still there for
+ * anything that lists settings, so they are deleted once, guarded by a marker
+ * that stops the scan running on every request.
+ *
+ * A backup that never produced a file predates folder backups: its note talks
+ * about the relay and email, so it is dropped too rather than shown again.
+ */
+function settings_prune_removed_features(): void
+{
+    if (setting('settings_pruned', '') === '1.5') {
+        return;
+    }
+
+    $prefixes = ['epson_notify_', 'monitor_', 'relay_', 'order_ready_email_'];
+    $exact    = ['customer_emails_enabled', 'backup_last_photos', 'backup_last_where'];
+    $drop     = [];
+
+    try {
+        $keys = array_map(
+            static fn(array $row): string => (string) $row['setting_key'],
+            db_all('SELECT setting_key FROM settings')
+        );
+
+        foreach ($keys as $key) {
+            foreach ($prefixes as $prefix) {
+                if (str_starts_with($key, $prefix)) {
+                    $drop[] = $key;
+                    continue 2;
+                }
+            }
+
+            if (in_array($key, $exact, true)) {
+                $drop[] = $key;
+            }
+        }
+
+        if ((string) setting('backup_last_file', '') === '') {
+            foreach ($keys as $key) {
+                if (str_starts_with($key, 'backup_last_')) {
+                    $drop[] = $key;
+                }
+            }
+        }
+
+        foreach (array_unique($drop) as $key) {
+            db_query('DELETE FROM settings WHERE setting_key = ?', [$key]);
+        }
+
+        set_setting('settings_pruned', '1.5');
+    } catch (Throwable $e) {
+        // A failed prune must never take a page down; it is retried next request.
+        error_log('[PrintFree] Could not prune retired settings: ' . $e->getMessage());
+    }
+
+    settings_all(true);
+}
+
 function site_name(): string
 {
     return setting('site_name', APP_NAME) ?? APP_NAME;

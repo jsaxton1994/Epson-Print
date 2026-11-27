@@ -257,6 +257,5 @@ function backup_record(array $result): void
     set_setting('backup_last_note', mb_substr($result['note'], 0, 500));
     set_setting('backup_last_bytes', (string) $result['bytes']);
     set_setting('backup_last_rows', (string) $result['rows']);
-    set_setting('backup_last_where', $result['where']);
     set_setting('backup_last_file', $result['file']);
 }
