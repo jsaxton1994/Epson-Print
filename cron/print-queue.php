@@ -336,6 +336,10 @@ try {
                     }
                 }
 
+                if ($supplyHold['active']) {
+                    $pollSeconds = 60; // stopped: no point asking every few seconds
+                }
+
                 // The status call itself takes seconds, so only wait what is left
                 // of the poll interval and start the next sheet sooner.
                 $wait = $pollSeconds - (microtime(true) - $checkedAt);

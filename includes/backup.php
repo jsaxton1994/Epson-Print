@@ -190,7 +190,7 @@ function run_backup(bool $includePhotos = true): array
             $result['note'] = 'Vault upload failed: ' . ($put['error'] !== '' ? $put['error'] : 'HTTP ' . $put['code']) . '. ';
         }
     } else {
-        $result['note'] = 'Relay is not configured. ';
+        $result['note'] = 'Relay is not ready (set its RELAY_TOKEN and test it). ';
     }
 
     if (!$uploaded && backup_mail_dump($dump['gz'], $name)) {
