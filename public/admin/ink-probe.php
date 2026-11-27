@@ -10,6 +10,10 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 
 require_admin();
 
+set_time_limit(180);
+ini_set('display_errors', '1');
+error_reporting(E_ALL);
+
 $epson = EpsonClient::fromSettings();
 $epson->bypassCircuit = true;
 
@@ -29,14 +33,11 @@ try {
 
 foreach ([
     '/printing/devices/status',
-    '/printing/devices/info/status',
     '/printing/devices/ink',
-    '/printing/devices/supplies',
     '/printing/supplies',
-    '/printing/status',
 ] as $path) {
     try {
-        $out['GET ' . $path] = $raw->invoke($epson, 'GET', $path, null, 15, 1);
+        $out['GET ' . $path] = $raw->invoke($epson, 'GET', $path, null, 10, 1);
     } catch (EpsonException $e) {
         $out['GET ' . $path] = 'ERR ' . $e->statusCode . ': ' . $e->getMessage();
     }
