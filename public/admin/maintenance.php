@@ -285,6 +285,12 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
             <div class="panel-body">
                 <div class="summary-list" style="margin:0 0 12px">
                     <div class="summary-row"><span>State</span><strong><?= $circuitLeft > 0 ? 'Failing fast, retry in ' . $circuitLeft . ' s' : 'Calling Epson normally' ?></strong></div>
+                    <div class="summary-row"><span>Epson edge</span><strong><?php
+                        $edgePins = array_values(array_unique(array_filter([
+                            epson_edge_ip('auth.epsonconnect.com'),
+                            epson_edge_ip('api.epsonconnect.com'),
+                        ])));
+                        ?><?= $edgePins === [] ? 'Automatic (DNS)' : e(implode(', ', $edgePins)) . ' (pinned)' ?></strong></div>
                     <div class="summary-row"><span>Requests / failures</span><strong><?= (int) $epsonStats['total'] ?> / <?= (int) $epsonStats['failed'] ?><?= $successRate !== null ? ' · ' . $successRate . '% ok' : '' ?></strong></div>
                     <div class="summary-row"><span>Consecutive failures</span><strong><?= (int) $epsonStats['consecutive'] ?></strong></div>
                     <div class="summary-row"><span>Outage</span><strong><?= $epsonOutage['active']

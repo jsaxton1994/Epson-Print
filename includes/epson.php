@@ -457,6 +457,8 @@ final class EpsonClient
         $url  = $uploadUri . (str_contains($uploadUri, '?') ? '&' : '?') . 'File=1.' . $extension;
         $size = strlen($data);
         $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        $resolve = $this->resolveOptions($host);
 
         $error     = '';
         $status    = 0;
@@ -480,6 +482,10 @@ final class EpsonClient
                     'Expect:',
                 ],
             ];
+
+            if ($resolve !== []) {
+                $options[CURLOPT_RESOLVE] = $resolve;
+            }
 
             curl_setopt_array($ch, $options);
 
@@ -514,6 +520,21 @@ final class EpsonClient
             $error = ($error !== '' ? $error : 'no response from Epson')
                 . ' (cURL ' . $errno . '; ' . $timings . ')';
 
+            // Uploads go to an Epson host too, so the same unreachable-edge
+            // problem applies here: try another edge before failing the photo.
+            if (self::isConnectFailure((int) $errno, $info)) {
+                if ($resolve !== []) {
+                    epson_set_edge_ip($host, '');
+                    $resolve = [];
+                } elseif ($attempt < 2) {
+                    $pinned = $this->pinReachableEdge($host);
+
+                    if ($pinned !== '') {
+                        $resolve = [$host . ':443:' . $pinned];
+                    }
+                }
+            }
+
             if ($attempt < 2) {
                 sleep(2);
             }
@@ -538,6 +559,79 @@ final class EpsonClient
             (float) ($info['starttransfer_time'] ?? 0),
             (float) ($info['total_time'] ?? 0)
         );
+    }
+
+    /**
+     * CURLOPT_RESOLVE value for a host: the Epson edge remembered for it, if any.
+     */
+    private function resolveOptions(string $host): array
+    {
+        $ip = epson_edge_ip($host);
+
+        return $ip === '' ? [] : [$host . ':443:' . $ip];
+    }
+
+    /**
+     * Epson is served by many CloudFront edges. When the address this server
+     * resolved cannot be reached at all, try the known edges and remember the
+     * first that answers, so later calls connect straight to a working one.
+     */
+    private function pinReachableEdge(string $host): string
+    {
+        $candidates = epson_edge_candidates($host);
+        $current    = epson_edge_ip($host);
+
+        foreach ($candidates as $ip) {
+            if ($ip === $current) {
+                continue;
+            }
+
+            $ch = curl_init('https://' . $host . '/');
+            curl_setopt_array($ch, [
+                CURLOPT_NOBODY         => true,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 6,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                CURLOPT_RESOLVE        => [$host . ':443:' . $ip],
+            ]);
+
+            curl_exec($ch);
+            $errno   = curl_errno($ch);
+            $curlErr = curl_error($ch);
+            $info    = curl_getinfo($ch);
+            curl_close($ch);
+
+            epson_log_request([
+                'host'       => $host,
+                'path'       => 'edge-probe',
+                'ok'         => $errno === 0,
+                'errno'      => $errno,
+                'http'       => (int) ($info['http_code'] ?? 0),
+                'connect_ms' => (int) round(1000 * (float) ($info['connect_time'] ?? 0)),
+                'total_ms'   => (int) round(1000 * (float) ($info['total_time'] ?? 0)),
+                'error'      => $errno === 0 ? '' : 'edge ' . $ip . ': ' . mb_substr($curlErr, 0, 100),
+            ]);
+
+            if ($errno === 0) {
+                epson_set_edge_ip($host, $ip);
+
+                return $ip;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * A connection that never opened: the edge address is unreachable, which is
+     * different from a slow or rejected request on a working connection.
+     */
+    private static function isConnectFailure(int $errno, array $info): bool
+    {
+        return in_array($errno, [6, 7], true)
+            || ($errno === 28 && (float) ($info['connect_time'] ?? 0) <= 0.0);
     }
 
     private function api(string $method, string $path, ?array $body = null, int $timeout = 0, int $attempts = 2): array
@@ -570,6 +664,8 @@ final class EpsonClient
         $timeout  = $timeout > 0 ? $timeout : EPSON_TIMEOUT;
         $attempts = max(1, $attempts);
         $url      = EPSON_API_URL . $path;
+        $host     = (string) parse_url($url, PHP_URL_HOST);
+        $resolve  = $this->resolveOptions($host);
         $error    = '';
         $raw      = false;
         $status   = 0;
@@ -586,6 +682,10 @@ final class EpsonClient
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_HTTPHEADER     => $headers,
             ];
+
+            if ($resolve !== []) {
+                $options[CURLOPT_RESOLVE] = $resolve;
+            }
 
             curl_setopt_array($ch, $options);
 
@@ -615,6 +715,23 @@ final class EpsonClient
 
             if ($raw !== false && $error === '') {
                 break;
+            }
+
+            // The edge this server resolved may be unreachable while other Epson
+            // edges answer: try a working one before spending more timeouts.
+            if (self::isConnectFailure((int) $errno, $info)) {
+                if ($resolve !== []) {
+                    // The remembered edge stopped answering; go back to DNS.
+                    epson_set_edge_ip($host, '');
+                    $resolve = [];
+                } elseif ($attempt < $attempts) {
+                    $pinned = $this->pinReachableEdge($host);
+
+                    if ($pinned !== '') {
+                        $resolve  = [$host . ':443:' . $pinned];
+                        $attempts = min(4, $attempts + 1);
+                    }
+                }
             }
 
             $error = ($error !== '' ? $error : 'no response from Epson')
@@ -681,22 +798,34 @@ final class EpsonClient
 
     private function tokenRequest(array $fields): array
     {
-        $ch = curl_init(EPSON_AUTH_URL . '/auth/token');
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => http_build_query($fields),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
-            CURLOPT_CONNECTTIMEOUT => EPSON_CONNECT_TIMEOUT,
-            CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
-            CURLOPT_HTTPHEADER     => [
-                'Authorization: Basic ' . base64_encode($this->config['client_id'] . ':' . $this->config['client_secret']),
-                'Content-Type: application/x-www-form-urlencoded',
-                'Accept: application/json',
-            ],
-        ]);
+        $host     = (string) parse_url(EPSON_AUTH_URL, PHP_URL_HOST);
+        $resolve  = $this->resolveOptions($host);
+        $attempts = 2;
+        $error    = '';
 
-        $raw     = curl_exec($ch);
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            $ch      = curl_init(EPSON_AUTH_URL . '/auth/token');
+            $options = [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => http_build_query($fields),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => EPSON_TIMEOUT,
+                CURLOPT_CONNECTTIMEOUT => EPSON_CONNECT_TIMEOUT,
+                CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Basic ' . base64_encode($this->config['client_id'] . ':' . $this->config['client_secret']),
+                    'Content-Type: application/x-www-form-urlencoded',
+                    'Accept: application/json',
+                ],
+            ];
+
+            if ($resolve !== []) {
+                $options[CURLOPT_RESOLVE] = $resolve;
+            }
+
+            curl_setopt_array($ch, $options);
+
+            $raw     = curl_exec($ch);
         $error   = curl_error($ch);
         $errno   = curl_errno($ch);
         $info    = curl_getinfo($ch);
@@ -715,24 +844,47 @@ final class EpsonClient
             'error'      => mb_substr($error, 0, 160),
         ]);
 
-        if ($raw === false || $error !== '') {
-            throw new EpsonException(
-                'Could not reach Epson authorisation: ' . $error . ' (cURL ' . $errno . '; ' . $timings . ')',
-                0,
-                [],
-                true,
-                $errno
-            );
+            if ($raw === false || $error !== '') {
+                $error = $error !== '' ? $error : 'no response from Epson';
+
+                if (self::isConnectFailure((int) $errno, $info)) {
+                    if ($resolve !== []) {
+                        epson_set_edge_ip($host, '');
+                        $resolve = [];
+                        continue;
+                    }
+
+                    if ($attempt < $attempts) {
+                        $pinned = $this->pinReachableEdge($host);
+
+                        if ($pinned !== '') {
+                            $resolve  = [$host . ':443:' . $pinned];
+                            $attempts = min(3, $attempts + 1);
+                            continue;
+                        }
+                    }
+                }
+
+                throw new EpsonException(
+                    'Could not reach Epson authorisation: ' . $error . ' (cURL ' . $errno . '; ' . $timings . ')',
+                    0,
+                    [],
+                    true,
+                    $errno
+                );
+            }
+
+            $payload = json_decode((string) $raw, true);
+            $payload = is_array($payload) ? $payload : [];
+
+            if ($status >= 400 || empty($payload['access_token'])) {
+                throw new EpsonException($this->errorMessage($payload, $status), $status, $payload);
+            }
+
+            return $payload;
         }
 
-        $payload = json_decode((string) $raw, true);
-        $payload = is_array($payload) ? $payload : [];
-
-        if ($status >= 400 || empty($payload['access_token'])) {
-            throw new EpsonException($this->errorMessage($payload, $status), $status, $payload);
-        }
-
-        return $payload;
+        throw new EpsonException('Could not reach Epson authorisation: ' . $error);
     }
 
     private function storeTokens(array $token): void

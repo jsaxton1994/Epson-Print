@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.62';
+const APP_VERSION = '1.3.63';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -137,4 +137,9 @@ const EPSON_CIRCUIT_SECONDS   = 60;  // fail-fast window after repeated transpor
 const EPSON_CIRCUIT_THRESHOLD = 2;   // consecutive failures that open the circuit
 const EPSON_LOG_LIMIT         = 40;  // recent Epson requests kept for diagnostics
 const EPSON_UPLOAD_TIMEOUT = 120;
+// Epson answers on many CloudFront edge addresses. This server has been unable
+// to reach the edge its own DNS returns (108.139.29.x: every connection timed
+// out) while other Epson edges answered in under a second, so a reachable edge
+// is tried, and remembered, when the resolved one cannot be reached at all.
+const EPSON_EDGE_FALLBACK_IPS = ['52.85.129.2', '52.85.129.3', '52.85.129.9', '52.85.129.33'];
 const EPSON_PRINTER_MODEL = 'Epson ET-2926';

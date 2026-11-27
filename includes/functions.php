@@ -315,6 +315,67 @@ function epson_circuit_seconds(): int
 }
 
 /**
+ * Setting key holding the Epson edge address that answered for one host.
+ */
+function epson_edge_setting_key(string $host): string
+{
+    return 'epson_edge_ip_' . preg_replace('/[^a-z0-9.]/', '', strtolower($host));
+}
+
+/**
+ * The Epson edge address remembered for a host, or '' for normal DNS.
+ */
+function epson_edge_ip(string $host): string
+{
+    return (string) setting(epson_edge_setting_key($host), '');
+}
+
+function epson_set_edge_ip(string $host, string $ip): void
+{
+    $key = epson_edge_setting_key($host);
+
+    if ($ip === '') {
+        if ((string) setting($key, '') !== '') {
+            set_setting($key, '');
+            set_setting('epson_edge_cleared_at', now());
+        }
+
+        return;
+    }
+
+    if ($ip !== (string) setting($key, '')) {
+        set_setting($key, $ip);
+        set_setting('epson_edge_pinned_at', now());
+    }
+}
+
+/**
+ * Addresses worth trying for an Epson host: the known working edges first, then
+ * whatever DNS currently returns.
+ *
+ * @return list<string>
+ */
+function epson_edge_candidates(string $host): array
+{
+    if (!str_ends_with(strtolower($host), 'epsonconnect.com')) {
+        return [];
+    }
+
+    $ips = EPSON_EDGE_FALLBACK_IPS;
+
+    foreach ((array) @gethostbynamel($host) as $ip) {
+        $ips[] = (string) $ip;
+    }
+
+    $ips = array_values(array_unique(array_filter(
+        $ips,
+        static fn (string $ip): bool => filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false
+    )));
+
+    return $ips;
+}
+
+/**
  * How long Epson has been unreachable, and what has already been said about it.
  *
  * @return array{active:bool,since:string,age:?int,attempts:int,last_error:string,alerted_at:string,recovered_at:string,last_duration:?int}
