@@ -40,6 +40,9 @@ if ((int) $lock !== 1) {
 // Record liveness after winning the worker lock, so a series of skipped cron
 // ticks cannot hide a hung worker that still holds the lock.
 set_setting('print_queue_last_run', now());
+// Publish how long this run may legitimately last, so the dashboard and the
+// watchdog can tell a long slice from a dead worker.
+set_setting('print_queue_slice_deadline', date('Y-m-d H:i:s', time() + PRINT_SLICE_BUDGET_SECONDS));
 
 $exitCode = 0;
 $messages = [];
@@ -602,6 +605,7 @@ try {
     $errors[] = $e->getMessage();
 } finally {
     try {
+        set_setting('print_queue_slice_deadline', '');
         db_val("SELECT RELEASE_LOCK('printfree_print_queue')");
     } catch (Throwable) {
         // The connection closing also releases the lock.

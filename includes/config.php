@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -126,6 +126,12 @@ const PRINT_ESTIMATE_SECONDS = 185;
 const BACKUP_PHOTOS_PER_RUN   = 200;
 const BACKUP_PHOTO_BYTES_RUN  = 200 * 1024 * 1024;
 const BACKUP_MAIL_MAX_BYTES   = 4 * 1024 * 1024;
+
+// A worker run legitimately holds the lock for a whole send slice plus the
+// status batch and a few Epson timeouts, which is longer than the stale
+// threshold. The run publishes this budget as a deadline so a long healthy run
+// reads as working rather than stopped.
+const PRINT_SLICE_BUDGET_SECONDS = PRINT_SEQUENTIAL_SECONDS + STATUS_BATCH_SECONDS + (3 * EPSON_TIMEOUT) + 180;
 
 const PRINT_QUEUE_STALE_MINUTES = 10;
 const PRINT_QUEUE_ORDER_STALL_MINUTES = 20;

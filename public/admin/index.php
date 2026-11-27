@@ -31,9 +31,11 @@ $queueWorkerState = $queueHealth['paused']
     ? 'Never run'
     : ($queueHealth['worker_stale']
         ? 'Stopped'
-        : ($queueHealth['last_status'] === 'error'
+        : ($queueHealth['run_in_progress']
+            ? 'Working'
+            : ($queueHealth['last_status'] === 'error'
             ? 'Failing'
-            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy'))));
+            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy')))));
 $attention = orders_needing_attention();
 $queueWatchdogState = $queueHealth['watchdog_last_run'] === null
     ? 'Never run'

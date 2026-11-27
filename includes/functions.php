@@ -1471,6 +1471,12 @@ function queue_health(): array
     $oldestAge = $oldestTs === false ? null : max(0, $now - $oldestTs);
     $staleAfter = PRINT_QUEUE_STALE_MINUTES * 60;
 
+    // A run that is still inside its slice budget is alive, however long ago it
+    // started: the heartbeat is the run's start, and one run can print for 15
+    // minutes without writing another one.
+    $sliceUntil    = strtotime((string) setting('print_queue_slice_deadline', '')) ?: false;
+    $runInProgress = $sliceUntil !== false && $sliceUntil > $now;
+
     // One order at a time means a big order takes hours and the orders behind it
     // wait: that is normal. A stall is orders waiting while nothing is on the
     // printer and nothing has come off it for a while.
@@ -1490,7 +1496,11 @@ function queue_health(): array
         'last_status'       => setting('print_queue_last_status', 'unknown') ?? 'unknown',
         'last_error'        => (string) setting('print_queue_last_error', ''),
         'worker_never_run'  => $lastRunTs === false,
-        'worker_stale'      => $lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter,
+        'worker_stale'      => $lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter
+            && !$runInProgress,
+        'run_in_progress'   => $runInProgress,
+        'slice_deadline'    => $sliceUntil === false ? '' : date('Y-m-d H:i:s', $sliceUntil),
+        'slice_left'        => $sliceUntil === false ? null : max(0, $sliceUntil - $now),
         'queued'            => $queued,
         'oldest_reference'  => $oldest['reference'] ?? null,
         'oldest_age'        => $oldestAge,
