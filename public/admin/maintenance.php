@@ -46,6 +46,75 @@ if (is_post()) {
         redirect('admin/maintenance.php');
     }
 
+    if ($action === 'net_probe') {
+        // Temporary diagnostics: what this server can actually reach, so a host
+        // egress problem can be told apart from an Epson-side block.
+        @set_time_limit(120);
+        header('Content-Type: application/json; charset=utf-8');
+
+        $hosts = ['auth.epsonconnect.com', 'api.epsonconnect.com'];
+        $out   = ['at' => now(), 'dns' => [], 'tests' => []];
+
+        foreach ($hosts as $host) {
+            $out['dns'][$host] = @gethostbynamel($host) ?: [];
+        }
+
+        $tests = [];
+        foreach ($hosts as $host) {
+            foreach (array_slice($out['dns'][$host], 0, 2) as $ip) {
+                $tests[] = [$host, $ip];
+            }
+        }
+        foreach (['52.85.129.2', '52.85.129.33', '52.85.129.9', '52.85.129.3'] as $ip) {
+            $tests[] = ['auth.epsonconnect.com', $ip];
+        }
+        $tests[] = ['www.cloudflare.com', null];
+        $tests[] = ['api.ipify.org', null];
+
+        $seen = [];
+        foreach ($tests as [$host, $ip]) {
+            $key = $host . '|' . ($ip ?? 'dns');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $ch      = curl_init('https://' . $host . '/');
+            $options = [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 10,
+                CURLOPT_CONNECTTIMEOUT => 6,
+                CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+                CURLOPT_HTTPHEADER     => ['Accept: */*'],
+            ];
+
+            if ($ip !== null) {
+                $options[CURLOPT_RESOLVE] = [$host . ':443:' . $ip];
+            }
+
+            curl_setopt_array($ch, $options);
+            $body = curl_exec($ch);
+            $info = curl_getinfo($ch);
+
+            $out['tests'][] = [
+                'host'       => $host,
+                'ip'         => $ip ?? (string) ($info['primary_ip'] ?? ''),
+                'http'       => (int) ($info['http_code'] ?? 0),
+                'errno'      => curl_errno($ch),
+                'error'      => mb_substr(curl_error($ch), 0, 120),
+                'dns_ms'     => (int) round(1000 * (float) ($info['namelookup_time'] ?? 0)),
+                'connect_ms' => (int) round(1000 * (float) ($info['connect_time'] ?? 0)),
+                'total_ms'   => (int) round(1000 * (float) ($info['total_time'] ?? 0)),
+                'body'       => $host === 'api.ipify.org' ? trim((string) $body) : null,
+            ];
+            curl_close($ch);
+        }
+
+        echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     if ($action === 'test_connection') {
         // Diagnostics: one request with the fail-fast circuit skipped.
         @set_time_limit(60);
