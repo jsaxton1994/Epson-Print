@@ -34,8 +34,8 @@ answers 404, including `/hook`.
    ```
 2. Deploy with the Freebuff Sites deployer (`deploy.json`), then set the secret:
    Sites → the site → Secrets → `RELAY_TOKEN`.
-3. Copy the same value into Admin → Settings → Relay on the site. The value is
-   the token in the existing webhook URL, shown there.
+3. The same value is shown on the site under Admin → Settings → Relay as the
+   callback token; copy it from there into this Worker's secret.
 4. Point Epson at the relay with Admin → Settings → Relay → *Point Epson at the
    relay*. That registers `https://<relay>/hook?token=…` as the callback URI.
 

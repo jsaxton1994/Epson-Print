@@ -147,7 +147,7 @@ try {
 
         // A notification can finish the sheet while the worker is waiting for
         // its next status check, so wait in short slices and wake as soon as
-        // the webhook records it: no idle printer, no extra Epson requests.
+        // a relay event records it: no idle printer, no extra Epson requests.
         $waitFor = static function (float $seconds): void {
             $kick      = epson_job_kick();
             $remaining = $seconds;
@@ -335,7 +335,7 @@ try {
                     : false;
 
                 if (epson_notifications_enabled()) {
-                    // Epson pushes each completion to the webhook, so this check
+                    // Epson pushes each completion through the relay, so this check
                     // is only a safety net for a missed notification.
                     $pollSeconds = PRINT_POLL_SAFETY_SECONDS;
                 } elseif ($startedAt !== false) {
