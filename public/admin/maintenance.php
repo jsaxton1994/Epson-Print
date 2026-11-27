@@ -189,6 +189,12 @@ if (is_post()) {
         exit;
     }
 
+    if ($action === 'notify_watch_reset') {
+        epson_notify_watch_restart();
+        flash('info', 'Webhook watch restarted. It now counts sheets finished and requests received from this moment.');
+        redirect('admin/maintenance.php');
+    }
+
     if ($action === 'test_connection') {
         // Diagnostics: one request with the fail-fast circuit skipped.
         @set_time_limit(60);
@@ -222,6 +228,7 @@ $successRate   = (int) $epsonStats['total'] > 0
 
 $pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
 $waitingOrders = (int) $health['queued'];
+$notifyWatch   = epson_notify_watch_summary();
 
 app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and look after the printer between jobs.');
 ?>
@@ -416,6 +423,58 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                         Last error <?= e(time_ago((string) $epsonStats['last_error_at'])) ?>:
                         <?= e((string) $epsonStats['last_error']) ?>
                     </p>
+                <?php endif; ?>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Webhook watch</h3>
+                    <p>Whether Epson's job callback actually reaches this site</p>
+                </div>
+                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="notify_watch_reset">
+                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Restart watch</button>
+                </form>
+            </div>
+            <div class="panel-body">
+                <div class="summary-list" style="margin:0 0 12px">
+                    <div class="summary-row"><span>Watching since</span><strong><?= e($notifyWatch['started_at']) ?><?= $notifyWatch['started_at'] !== '' ? ' · ' . e(time_ago($notifyWatch['started_at'])) : '' ?></strong></div>
+                    <div class="summary-row"><span>Sheets finished since</span><strong><?= (int) $notifyWatch['sheets'] ?></strong></div>
+                    <div class="summary-row"><span>Requests received</span><strong><?= (int) $notifyWatch['total'] ?> (<?= (int) $notifyWatch['posts'] ?> POST)</strong></div>
+                    <div class="summary-row"><span>Last request</span><strong><?php
+                        echo $notifyWatch['last_at'] === ''
+                            ? 'None'
+                            : e($notifyWatch['last_at']) . ' · ' . e($notifyWatch['last_method']) . ' from ' . e($notifyWatch['last_ip'] !== '' ? $notifyWatch['last_ip'] : 'unknown IP');
+                        ?></strong></div>
+                    <div class="summary-row"><span>Notifications</span><strong><?= epson_notifications_enabled() ? 'On' : 'Off — observing only' ?></strong></div>
+                </div>
+                <p style="margin:0 0 8px;font-weight:600"><?= e($notifyWatch['verdict']) ?></p>
+                <p class="muted" style="margin:0;font-size:.78rem">
+                    Every request that gets past the host and into PHP is counted here, matching token or not. Sheets finished is the
+                    control: a sheet that finishes with no request means Epson is not delivering, while a counted request with
+                    <span class="mono">observed</span> means it is. While notifications are off nothing is applied to any photo.
+                </p>
+                <?php $watchDebug = epson_notify_debug_entries(5); ?>
+                <?php if ($watchDebug !== []): ?>
+                    <div class="table-wrap" style="margin-top:10px">
+                        <table class="table">
+                            <thead><tr><th>Time</th><th>From</th><th>Outcome</th><th>HTTP</th><th>Token</th></tr></thead>
+                            <tbody>
+                                <?php foreach ($watchDebug as $row): ?>
+                                    <tr>
+                                        <td class="muted"><?= e(date('H:i:s', strtotime((string) $row['at']) ?: time())) ?></td>
+                                        <td class="mono"><?= e((string) ($row['ip'] ?? '—')) ?></td>
+                                        <td><?= e((string) ($row['outcome'] ?? '')) ?></td>
+                                        <td><?= (int) ($row['status'] ?? 0) ?></td>
+                                        <td><?= e((string) ($row['token'] ?? '')) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 <?php endif; ?>
             </div>
         </section>

@@ -32,6 +32,8 @@ $raw     = $method === 'POST' ? (string) file_get_contents('php://input', false,
 $debug = [
     'at'           => now(),
     'method'       => $method,
+    'ip'           => mb_substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+    'forwarded'    => mb_substr((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''), 0, 90),
     'token'        => $token === '' ? 'missing' : ($tokenOk ? 'match' : 'mismatch'),
     'query_keys'   => implode(',', array_keys($_GET)) ?: 'none',
     'content_type' => mb_substr((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 0, 80),
@@ -44,11 +46,12 @@ $debug = [
     'note'         => '',
 ];
 
-$finish = static function (int $status, array $body, string $outcome, string $note = '') use (&$debug): never {
+$finish = static function (int $status, array $body, string $outcome, string $note = '') use (&$debug, $tokenOk): never {
     $debug['status']  = $status;
     $debug['outcome'] = $outcome;
     $debug['note']    = mb_substr($note, 0, 240);
     epson_notify_debug_log($debug);
+    epson_notify_watch_record($debug, $outcome, $tokenOk);
 
     http_response_code($status);
     echo json_encode($body, JSON_UNESCAPED_SLASHES);
@@ -108,6 +111,26 @@ if ($jobId === '') {
 
 $epson  = EpsonClient::fromSettings();
 $result = $epson->interpretJobStatus(is_array($statusPayload) ? $statusPayload : []);
+
+if (!epson_notifications_enabled()) {
+    // Notifications are off, so this is the watch only: prove the delivery
+    // without changing any photo's status or cutting the worker's wait short.
+    epson_log_notification([
+        'at'       => now(),
+        'job_id'   => mb_substr($jobId, 0, 64),
+        'status'   => (string) $result['status'],
+        'photo_id' => null,
+        'matched'  => false,
+        'result'   => 'observed while notifications are off',
+    ]);
+
+    $finish(200, [
+        'ok'       => true,
+        'observed' => true,
+        'status'   => (string) $result['status'],
+    ], 'observed', 'job=' . mb_substr($jobId, 0, 40) . ' status=' . (string) $result['status']);
+}
+
 $applied = epson_apply_job_status($jobId, $result);
 
 epson_log_notification([

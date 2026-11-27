@@ -634,6 +634,120 @@ function epson_notify_debug_entries(int $limit = 8): array
 }
 
 /**
+ * TEMPORARY: counters for the webhook watch.
+ *
+ * The debug ring only keeps 20 rows, so arrivals are also counted here and
+ * paired with the sheets that finished inside the same window. That pairing is
+ * the evidence: sheets finishing with no request means Epson is not delivering.
+ * Remove with epson_notify_debug_*.
+ */
+function epson_notify_watch_record(array $entry, string $outcome, bool $tokenOk): void
+{
+    $watch = json_decode((string) setting('epson_notify_watch', ''), true);
+    $watch = is_array($watch) ? $watch : [];
+    $watch += [
+        'started_at' => now(),
+        'total'      => 0,
+        'posts'      => 0,
+        'accepted'   => 0,
+        'rejected'   => 0,
+    ];
+
+    $watch['total'] = (int) $watch['total'] + 1;
+
+    if (($entry['method'] ?? '') === 'POST') {
+        $watch['posts'] = (int) $watch['posts'] + 1;
+    }
+
+    if ($tokenOk) {
+        $watch['accepted'] = (int) $watch['accepted'] + 1;
+    } else {
+        $watch['rejected'] = (int) $watch['rejected'] + 1;
+    }
+
+    $watch['last_at']      = (string) ($entry['at'] ?? now());
+    $watch['last_ip']      = (string) ($entry['ip'] ?? '');
+    $watch['last_method']  = (string) ($entry['method'] ?? '');
+    $watch['last_outcome'] = $outcome;
+
+    set_setting('epson_notify_watch', json_encode($watch, JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Start the watch window again, e.g. before a fresh batch of sheets.
+ */
+function epson_notify_watch_restart(): void
+{
+    set_setting('epson_notify_watch', json_encode([
+        'started_at' => now(),
+        'total'      => 0,
+        'posts'      => 0,
+        'accepted'   => 0,
+        'rejected'   => 0,
+        'last_at'    => '',
+        'last_ip'    => '',
+    ], JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * The watch window plus the sheets that finished inside it.
+ *
+ * @return array{started_at:string,sheets:int,total:int,posts:int,accepted:int,rejected:int,last_at:string,last_ip:string,last_method:string,last_outcome:string,verdict:string}
+ */
+function epson_notify_watch_summary(): array
+{
+    $watch = json_decode((string) setting('epson_notify_watch', ''), true);
+    $watch = is_array($watch) ? $watch : [];
+    $watch += [
+        'started_at' => '',
+        'total'      => 0,
+        'posts'      => 0,
+        'accepted'   => 0,
+        'rejected'   => 0,
+        'last_at'    => '',
+        'last_ip'    => '',
+        'last_method' => '',
+        'last_outcome' => '',
+    ];
+
+    if ((string) $watch['started_at'] === '') {
+        $watch['started_at'] = now();
+        set_setting('epson_notify_watch', json_encode($watch, JSON_UNESCAPED_SLASHES));
+    }
+
+    $sheets = (int) db_val(
+        'SELECT COUNT(*) FROM order_photos WHERE printed_at IS NOT NULL AND printed_at >= ?',
+        [(string) $watch['started_at']]
+    );
+
+    $total    = (int) $watch['total'];
+    $posts    = (int) $watch['posts'];
+    $accepted = (int) $watch['accepted'];
+
+    $verdict = match (true) {
+        $posts > 0 && $accepted > 0 => 'Epson delivered ' . $posts . ' POST' . ($posts === 1 ? '' : 's')
+            . ', ' . $accepted . ' with our token, while ' . $sheets . ' sheet' . ($sheets === 1 ? '' : 's') . ' finished.',
+        $posts > 0 => $posts . ' POST' . ($posts === 1 ? '' : 's') . ' arrived but none carried our token: the path is reachable, the URL is not what sent them.',
+        $sheets > 0 => 'No delivery: ' . $sheets . ' sheet' . ($sheets === 1 ? '' : 's') . ' finished and Epson sent nothing.',
+        default => 'Waiting for the next sheet to finish.',
+    };
+
+    return [
+        'started_at'   => (string) $watch['started_at'],
+        'sheets'       => $sheets,
+        'total'        => $total,
+        'posts'        => $posts,
+        'accepted'     => $accepted,
+        'rejected'     => (int) $watch['rejected'],
+        'last_at'      => (string) $watch['last_at'],
+        'last_ip'      => (string) $watch['last_ip'],
+        'last_method'  => (string) $watch['last_method'],
+        'last_outcome' => (string) $watch['last_outcome'],
+        'verdict'      => $verdict,
+    ];
+}
+
+/**
  * A counter the webhook bumps when it finishes a sheet, so the worker's wait
  * can be cut short instead of sleeping through the whole safety interval.
  */
