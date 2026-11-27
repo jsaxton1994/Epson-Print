@@ -399,6 +399,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <li><?= icon('clock') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">New orders awaiting acceptance</a></span></li>
                     <li><?= icon('users') ?><span><a href="<?= e(url('admin/customers.php')) ?>">Customer directory</a></span></li>
                     <li><?= icon('gear') ?><span><a href="<?= e(url('admin/service-settings.php')) ?>">Service settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
+                    <li><?= icon('tiro') ?><span><a href="<?= e(url('admin/information.php')) ?>">Queue monitoring, storage &amp; service health</a></span></li>
                 </ul>
             </div>
         </section>
