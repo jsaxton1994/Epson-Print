@@ -834,7 +834,6 @@
 
 .settings-jump a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.panel[id] { scroll-margin-top: 92px; }
 
 .settings-layout {
     display: grid;
