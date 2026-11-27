@@ -16,7 +16,7 @@ const APP_NAME    = 'PrintFree';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.10.1';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.

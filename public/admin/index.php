@@ -530,7 +530,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <li><?= icon('layers') ?><span><a href="<?= e(url('admin/orders.php?status=accepted')) ?>">Automatic print queue</a></span></li>
                     <li><?= icon('clock') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">New orders awaiting acceptance</a></span></li>
                     <li><?= icon('users') ?><span><a href="<?= e(url('admin/customers.php')) ?>">Customer directory</a></span></li>
-                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/site-settings.php')) ?>">Site settings</a> · <a href="<?= e(url('admin/service-settings.php')) ?>">service settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
+                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/site-settings.php')) ?>">Site settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
                     <li><?= icon('tiro') ?><span><a href="<?= e(url('admin/service-stats.php')) ?>">Queue monitoring, printer &amp; service health</a></span></li>
                 </ul>
             </div>

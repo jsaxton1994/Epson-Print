@@ -222,7 +222,6 @@ function app_start(string $role, string $active, string $title, string $subtitle
     $settingsItems = $isAdmin
         ? [
             'site-settings'    => ['label' => 'Site Settings', 'href' => 'admin/site-settings.php', 'icon' => 'leaf'],
-            'service-settings' => ['label' => 'Service Settings', 'href' => 'admin/service-settings.php', 'icon' => 'gear'],
             'printer-settings' => ['label' => 'Printer Settings', 'href' => 'admin/printer-settings.php', 'icon' => 'printer'],
             'backup-settings'  => ['label' => 'Backup Settings', 'href' => 'admin/backup-settings.php', 'icon' => 'download'],
         ]
