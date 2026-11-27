@@ -7,3 +7,4 @@
 # OS noise
 .DS_Store
 Thumbs.db
+.wrangler/

@@ -31,6 +31,12 @@ if (is_post()) {
         redirect('admin/maintenance.php');
     }
 
+    if ($action === 'supply_clear') {
+        printer_supply_clear();
+        flash('success', 'Paper/ink hold cleared. The queue sends the next photo on its next run.');
+        redirect('admin/maintenance.php');
+    }
+
     if ($action === 'refresh') {
         @set_time_limit(60);
         set_setting('printer_status_cache', '');
@@ -224,7 +230,8 @@ if (is_post()) {
     }
 }
 
-$pause  = printing_pause_info();
+$pause       = printing_pause_info();
+$supplyHold  = printer_supply_block();
 $health = queue_health();
 $status = printer_live_status($epson, false);
 
@@ -258,6 +265,28 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="resume">
                     <button class="btn btn-primary btn-sm" type="submit"><?= icon('check') ?> Resume printing</button>
+                </form>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($supplyHold['active']): ?>
+    <div class="banner banner-danger">
+        <?= icon('alert') ?>
+        <div>
+            <strong>Printing is held: <?= e($supplyHold['label']) ?></strong>
+            <p>
+                The printer reported <span class="mono"><?= e($supplyHold['reason']) ?></span>
+                <?= $supplyHold['since'] !== '' ? e(time_ago($supplyHold['since'])) : 'just now' ?>.
+                No new photos are being sent, so the queue cannot fail against it.
+                Load photo paper or replace the ink, then clear the hold.
+            </p>
+            <div class="banner-actions">
+                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="supply_clear">
+                    <button class="btn btn-primary btn-sm" type="submit"><?= icon('check') ?> Clear and continue</button>
                 </form>
             </div>
         </div>
@@ -355,6 +384,7 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                     <?php if (isset($status['connected'])): ?>
                         <div class="summary-row"><span>Linked to Epson Connect</span><strong><?= $status['connected'] ? 'Yes' : 'No' ?></strong></div>
                     <?php endif; ?>
+                    <div class="summary-row"><span>Paper / ink hold</span><strong><?= $supplyHold['active'] ? e($supplyHold['label']) : 'None' ?></strong></div>
                     <div class="summary-row"><span>Waiting orders</span><strong><?= $waitingOrders ?></strong></div>
                     <div class="summary-row"><span>Photos waiting</span><strong><?= $pendingPhotos ?></strong></div>
                 </div>

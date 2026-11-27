@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "snapprints-relay",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "snapprints-relay",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "snapprints-relay-vault"
+    }
+  ],
+  "vars": {
+    "RELAY_TOKEN": "local-dev-token"
+  }
+}

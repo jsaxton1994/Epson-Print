@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.3.69';
+const APP_VERSION = '1.4.0';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -110,6 +110,22 @@ const PRINT_STATUS_CACHE_SECONDS = 45;
 // worker fails it so the order can be retried instead of waiting for ever.
 // The longest normal job (A4 photo, high quality) finishes well inside this.
 const PRINT_JOB_STUCK_MINUTES = 45;
+
+// Printing stops by itself when the printer reports an empty tray, empty ink or
+// a jam, so the queue does not feed more photos into a printer that would fail
+// them. The operator is emailed once, then reminded while it lasts.
+const PRINT_SUPPLY_REMINDER_MINUTES = 60;
+
+// Fallback sheet time when no completed sheets have been measured yet. High
+// quality 4 x 6 measures 165-199 s on this printer.
+const PRINT_ESTIMATE_SECONDS = 185;
+
+// Backups. The database dump leaves the host for the relay vault (and the
+// alert inbox as a fallback), and photos still waiting to print are copied
+// there too, a bounded number per run.
+const BACKUP_PHOTOS_PER_RUN   = 200;
+const BACKUP_PHOTO_BYTES_RUN  = 200 * 1024 * 1024;
+const BACKUP_MAIL_MAX_BYTES   = 4 * 1024 * 1024;
 
 const PRINT_QUEUE_STALE_MINUTES = 10;
 const PRINT_QUEUE_ORDER_STALL_MINUTES = 20;

@@ -66,6 +66,10 @@ app_start(
     $count . ' photo' . ($count === 1 ? '' : 's') . ' · submitted ' . format_date($order['created_at'])
 );
 
+$queueEstimates = queue_estimates();
+$etaSeconds     = $queueEstimates[(int) $order['id']] ?? null;
+$showEta        = $etaSeconds !== null && in_array($order['status'], ['accepted', 'printing'], true);
+
 $uploadedNow = (int) input('uploaded', '0');
 if ($uploadedNow > 0): ?>
     <div class="banner banner-info">
@@ -73,6 +77,19 @@ if ($uploadedNow > 0): ?>
         <div>
             <strong>Upload complete</strong>
             <p><?= $uploadedNow ?> photo<?= $uploadedNow === 1 ? '' : 's' ?> added. This order now has <?= $count ?> of <?= (int) MAX_PHOTOS_PER_ORDER ?> photos.</p>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($showEta): ?>
+    <div class="banner banner-info">
+        <?= icon('clock') ?>
+        <div>
+            <strong>About <?= e(human_duration((int) $etaSeconds)) ?> of printing left</strong>
+            <p>
+                Photos print one sheet at a time and this order finishes with the rest of the queue.
+                Expect it to be ready around <?= e(date('H:i', time() + (int) $etaSeconds)) ?> — we will email you when it is done.
+            </p>
         </div>
     </div>
 <?php endif; ?>
@@ -137,6 +154,9 @@ if ($uploadedNow > 0): ?>
                     <div><dt>Total size</dt><dd><?= e(human_size($totalKb)) ?></dd></div>
                     <div><dt>Copies</dt><dd>1 of each photo</dd></div>
                     <div><dt>Last update</dt><dd><?= e(format_date($order['updated_at'])) ?></dd></div>
+                    <?php if ($showEta): ?>
+                        <div><dt>Estimated finish</dt><dd><?= e(date('H:i', time() + (int) $etaSeconds)) ?> · about <?= e(human_duration((int) $etaSeconds)) ?></dd></div>
+                    <?php endif; ?>
                 </dl>
 
                 <?php if (!empty($order['notes'])): ?>

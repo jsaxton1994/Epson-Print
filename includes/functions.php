@@ -225,6 +225,602 @@ function send_queue_alert(string $subject, string $body): bool
     return $sent;
 }
 
+/* -------------------------------------------------------------------------
+ |  External heartbeat (dead-man's switch)
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Where an outside monitor is pinged after every worker run.
+ *
+ * The host's own watchdog can only complain while the host is alive; a ping to
+ * a monitor elsewhere is what notices the whole site or the cron entry dying.
+ * Any heartbeat service that alarms when a ping does not arrive will do.
+ */
+function monitor_ping_url(): string
+{
+    return trim((string) setting('monitor_ping_url', ''));
+}
+
+/**
+ * Last heartbeat result, for the admin panel.
+ *
+ * @return array<string,mixed>
+ */
+function monitor_last_ping(): array
+{
+    $last = json_decode((string) setting('monitor_last_ping', ''), true);
+
+    return is_array($last) ? $last : [];
+}
+
+/**
+ * Tell the outside monitor the worker ran, and whether the run was healthy.
+ *
+ * A heartbeat service treats a request to the ping URL as "alive"; appending
+ * /fail marks the check as down for services that support it. The request is
+ * short and swallowable: a monitor that is down must never delay printing.
+ *
+ * @param array<string,mixed> $extra
+ * @return array{ok:bool,code:int,error:string,at:string,status:string}|null
+ */
+function monitor_ping(string $status = 'ok', array $extra = []): ?array
+{
+    $url = monitor_ping_url();
+
+    if ($url === '' || !preg_match('#^https?://#i', $url)) {
+        return null;
+    }
+
+    $target = $url;
+
+    if ($status !== 'ok') {
+        $target = str_contains($url, '?')
+            ? $url . '&status=fail'
+            : rtrim($url, '/') . '/fail';
+    }
+
+    $payload = array_merge([
+        'status'  => $status,
+        'site'    => site_name(),
+        'version' => APP_VERSION,
+        'at'      => now(),
+    ], $extra);
+
+    $ch = curl_init($target);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_USERAGENT      => 'PrintFree/' . APP_VERSION,
+    ]);
+    curl_exec($ch);
+
+    $result = [
+        'ok'     => curl_errno($ch) === 0 && (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE) < 400,
+        'code'   => (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
+        'error'  => mb_substr(curl_error($ch), 0, 200),
+        'status' => $status,
+        'at'     => now(),
+    ];
+    curl_close($ch);
+
+    set_setting('monitor_last_ping', json_encode($result, JSON_UNESCAPED_SLASHES));
+
+    return $result;
+}
+
+/* -------------------------------------------------------------------------
+ |  Print-time estimates
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Seconds one sheet takes, measured from the last week of completed photos.
+ *
+ * Cached for ten minutes so a page load does not run the aggregate query, and
+ * clamped so one odd job cannot turn an estimate absurd.
+ */
+function sheet_seconds_estimate(): int
+{
+    $cached = (int) setting('print_sheet_seconds', '0');
+    $stamp  = strtotime((string) setting('print_sheet_seconds_at', '')) ?: 0;
+
+    if ($cached >= 60 && $cached <= 600 && (time() - $stamp) < 600) {
+        return $cached;
+    }
+
+    if (!print_started_column_ready()) {
+        return $cached >= 60 && $cached <= 600 ? $cached : PRINT_ESTIMATE_SECONDS;
+    }
+
+    $average = db_val(
+        'SELECT AVG(TIMESTAMPDIFF(SECOND, print_started_at, printed_at))
+         FROM order_photos
+         WHERE printed_at IS NOT NULL AND print_started_at IS NOT NULL
+           AND printed_at >= print_started_at
+           AND printed_at > ?',
+        [date('Y-m-d H:i:s', time() - 7 * 86400)]
+    );
+    $average = $average !== null ? (int) round((float) $average) : 0;
+
+    if ($average >= 60 && $average <= 600) {
+        set_setting('print_sheet_seconds', (string) $average);
+        set_setting('print_sheet_seconds_at', now());
+
+        return $average;
+    }
+
+    return $cached >= 60 && $cached <= 600 ? $cached : PRINT_ESTIMATE_SECONDS;
+}
+
+/**
+ * Seconds of printing left for every order currently in the queue.
+ *
+ * One query, walked in the worker's own order, so a page can show a finish
+ * estimate for each active order without asking Epson anything.
+ *
+ * @return array<int,int> order id => seconds from now
+ */
+function queue_estimates(): array
+{
+    $per         = sheet_seconds_estimate();
+    $startedSql  = print_started_column_ready() ? 'p.print_started_at' : 'NULL AS print_started_at';
+    $queueOrder  = accepted_at_column_ready()
+        ? 'COALESCE(o.accepted_at, o.created_at) ASC, o.id ASC'
+        : 'o.created_at ASC, o.id ASC';
+
+    $rows = db_all(
+        "SELECT p.id, p.order_id, p.status, {$startedSql}
+         FROM order_photos p
+         JOIN orders o ON o.id = p.order_id
+         WHERE o.status IN ('accepted', 'printing')
+           AND p.status IN ('printing', 'pending')
+         ORDER BY {$queueOrder}, p.position ASC, p.id ASC"
+    );
+
+    $clock = microtime(true);
+    $out   = [];
+
+    foreach ($rows as $row) {
+        $seconds = $per;
+
+        if ($row['status'] === 'printing' && !empty($row['print_started_at'])) {
+            $started = strtotime((string) $row['print_started_at']);
+
+            if ($started !== false) {
+                $seconds = max(5, $per - (time() - $started));
+            }
+        }
+
+        $clock += $seconds;
+        $out[(int) $row['order_id']] = (int) max(1, round($clock - microtime(true)));
+    }
+
+    return $out;
+}
+
+/** "About 1 h 20 min" — a rounded span for customers. */
+function human_duration(int $seconds): string
+{
+    $seconds = max(0, $seconds);
+
+    if ($seconds < 60) {
+        return 'under a minute';
+    }
+
+    $minutes = (int) round($seconds / 60);
+
+    if ($minutes < 60) {
+        return $minutes . ' min';
+    }
+
+    $hours   = intdiv($minutes, 60);
+    $rest    = $minutes % 60;
+
+    return $hours . ' h' . ($rest > 0 ? ' ' . $rest . ' min' : '');
+}
+
+/* -------------------------------------------------------------------------
+ |  Customer email
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Send a plain-text email to a customer. Returns false when mail transport or
+ * the address rejects it; callers treat that as a note, never as a failure of
+ * the print.
+ */
+function send_customer_mail(string $to, string $subject, string $body): bool
+{
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        return false;
+    }
+
+    $support = trim((string) setting('support_email', ''));
+    $domain  = str_contains($support, '@') ? substr(strrchr($support, '@'), 1) : 'localhost';
+    $from    = 'no-reply@' . ($domain !== '' ? $domain : 'localhost');
+    $site    = str_replace(["\r", "\n"], ' ', site_name());
+
+    $headers = implode("\r\n", [
+        'From: ' . $site . ' <' . $from . '>',
+        'Reply-To: ' . ($support !== '' ? $support : $from),
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'X-Mailer: PHP/' . phpversion(),
+    ]);
+
+    $sent = @mail($to, '[' . $site . '] ' . $subject, $body, $headers);
+
+    if (!$sent) {
+        error_log('[PrintFree] Could not email ' . $to . '.');
+    }
+
+    return $sent;
+}
+
+/**
+ * Tell a customer their order has finished printing. Idempotent: the first
+ * completion wins and the marker stops a retry from sending it twice.
+ */
+function order_ready_email(int $orderId): void
+{
+    if (setting('customer_emails_enabled', '1') !== '1') {
+        return;
+    }
+
+    if (setting('order_ready_email_' . $orderId, '') !== '') {
+        return;
+    }
+
+    $order = db_one(
+        'SELECT o.reference, o.paper_size, u.name, u.email
+         FROM orders o JOIN users u ON u.id = o.user_id
+         WHERE o.id = ?',
+        [$orderId]
+    );
+
+    if ($order === null) {
+        return;
+    }
+
+    $photos = (int) db_val(
+        "SELECT COUNT(*) FROM order_photos WHERE order_id = ? AND status = 'completed'",
+        [$orderId]
+    );
+    $site = site_name();
+
+    $body = implode(PHP_EOL, [
+        'Hello ' . $order['name'] . ',',
+        '',
+        'Your order ' . $order['reference'] . ' has finished printing.',
+        $photos . ' photo' . ($photos === 1 ? '' : 's') . ' · ' . paper_size_label((string) $order['paper_size']),
+        '',
+        'It is ready to collect from the print desk.',
+        '',
+        'Order status: ' . absolute_url('customer/order.php?id=' . $orderId),
+        '',
+        $site,
+    ]);
+
+    if (send_customer_mail((string) $order['email'], 'Your photos are ready — ' . $order['reference'], $body)) {
+        set_setting('order_ready_email_' . $orderId, now());
+    }
+}
+
+/* -------------------------------------------------------------------------
+ |  Printer supplies (paper, ink, jams)
+ * ---------------------------------------------------------------------- */
+
+/** Friendly name for an Epson stop reason. */
+function printer_supply_label(string $reason): string
+{
+    return match ($reason) {
+        'media_empty'         => 'Out of photo paper',
+        'media_jam'           => 'Paper jam',
+        'marker_supply_empty' => 'Out of ink',
+        default               => 'Printer needs attention',
+    };
+}
+
+/**
+ * The stop currently holding the queue, if any.
+ *
+ * @return array{active:bool,reason:string,label:string,since:string,age:int|null}
+ */
+function printer_supply_block(): array
+{
+    $reason = (string) setting('printer_supply_block_reason', '');
+    $since  = (string) setting('printer_supply_block_at', '');
+    $ts     = $since !== '' ? strtotime($since) : false;
+
+    return [
+        'active' => $reason !== '' && $ts !== false,
+        'reason' => $reason,
+        'label'  => (string) setting('printer_supply_block_label', printer_supply_label($reason)),
+        'since'  => $since,
+        'age'    => $ts === false ? null : max(0, time() - $ts),
+    ];
+}
+
+/**
+ * Record a paper/ink stop and email the operator about it.
+ *
+ * Sent once when the stop starts, then reminded hourly while it lasts. Returns
+ * 'alert', 'reminder' or null when no email was due.
+ */
+function printer_supply_note_stop(string $reason): ?string
+{
+    $label  = printer_supply_label($reason);
+    $block  = printer_supply_block();
+    $health = queue_health();
+
+    $body = implode(PHP_EOL, [
+        'PrintFree queue alert',
+        '',
+        'Issue: ' . $label,
+        'Time: ' . format_date(now()),
+        'Printer reason: ' . $reason,
+        'Queue: ' . $health['queued'] . ' order' . ($health['queued'] === 1 ? '' : 's') . ' waiting',
+        'Photos left for the active order: ' . $health['queued'],
+        '',
+        'Printing has been held so no more photos are sent until the printer is ready.',
+        'Clear the alert in Admin → Maintenance (or press Resume) once the printer is loaded.',
+    ]);
+
+    if (!$block['active']) {
+        set_setting('printer_supply_block_reason', $reason);
+        set_setting('printer_supply_block_label', $label);
+        set_setting('printer_supply_block_at', now());
+        set_setting('printer_supply_alerted_at', now());
+        send_queue_alert($label . ' — printing is held', $body);
+
+        return 'alert';
+    }
+
+    $alertedAt = strtotime((string) setting('printer_supply_alerted_at', '')) ?: 0;
+
+    if ($alertedAt === 0 || (time() - $alertedAt) >= PRINT_SUPPLY_REMINDER_MINUTES * 60) {
+        set_setting('printer_supply_alerted_at', now());
+        send_queue_alert($label . ' — still holding the queue', $body);
+
+        return 'reminder';
+    }
+
+    return null;
+}
+
+/** Clear the supply stop so the queue can send photos again. */
+function printer_supply_clear(): void
+{
+    set_setting('printer_supply_block_reason', '');
+    set_setting('printer_supply_block_label', '');
+    set_setting('printer_supply_block_at', '');
+    set_setting('printer_supply_alerted_at', '');
+}
+
+/* -------------------------------------------------------------------------
+ |  Relay (public callback inbox + off-host vault)
+ * ---------------------------------------------------------------------- */
+
+function relay_base_url(): string
+{
+    return rtrim(trim((string) setting('relay_url', '')), '/');
+}
+
+function relay_token(): string
+{
+    // The same long random token as the site webhook URL: shown once in Admin
+    // -> Settings, copied into the relay's RELAY_TOKEN secret, and carried by
+    // Epson in the relay callback URL so a POST needs no header.
+    return epson_notify_secret();
+}
+
+function relay_configured(): bool
+{
+    return relay_base_url() !== '' && relay_token() !== '';
+}
+
+/**
+ * Whether the relay has been tested from this site. Until it has, the worker
+ * does not try to pull from it or upload to it, so an unset secret cannot fill
+ * the queue log with errors or lose a backup attempt to a 404.
+ */
+function relay_ready(): bool
+{
+    return relay_configured() && setting('relay_pull_enabled', '') === '1';
+}
+
+/**
+ * One request to the relay. Auth is a bearer token; the same token is in the
+ * callback URL so Epson's POST is accepted without a header.
+ *
+ * @return array{ok:bool,code:int,body:string,json:mixed,error:string}
+ */
+function relay_request(string $method, string $path, ?string $body = null, int $timeout = 25, string $contentType = 'application/json'): array
+{
+    $result = ['ok' => false, 'code' => 0, 'body' => '', 'json' => null, 'error' => ''];
+    $base   = relay_base_url();
+    $token  = relay_token();
+
+    if ($base === '' || $token === '') {
+        $result['error'] = 'Relay is not configured.';
+
+        return $result;
+    }
+
+    $headers = [
+        'Authorization: Bearer ' . $token,
+        'X-Relay-Token: ' . $token,
+        'Accept: application/json',
+    ];
+
+    if ($body !== null) {
+        $headers[] = 'Content-Type: ' . $contentType;
+    }
+
+    $ch = curl_init($base . $path);
+    $options = [
+        CURLOPT_CUSTOMREQUEST  => $method,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => $timeout,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_USERAGENT      => 'PrintFree/' . APP_VERSION,
+    ];
+
+    if ($body !== null) {
+        $options[CURLOPT_POSTFIELDS] = $body;
+    }
+
+    curl_setopt_array($ch, $options);
+    $raw   = curl_exec($ch);
+    $code  = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    $result['code']  = $code;
+    $result['body']  = is_string($raw) ? $raw : '';
+    $result['error'] = mb_substr($error, 0, 200);
+    $result['ok']    = $error === '' && $code >= 200 && $code < 300;
+
+    $decoded = json_decode($result['body'], true);
+    $result['json'] = is_array($decoded) ? $decoded : null;
+
+    return $result;
+}
+
+/**
+ * The job id and status payload inside an Epson notification body.
+ *
+ * @return array{job_id:string,status_payload:array<string,mixed>}
+ */
+function epson_parse_notification(string $raw): array
+{
+    $payload = json_decode($raw, true);
+
+    if (!is_array($payload)) {
+        return ['job_id' => '', 'status_payload' => []];
+    }
+
+    $param         = $payload['Param'] ?? $payload['param'] ?? null;
+    $statusPayload = $payload;
+    $jobId         = '';
+
+    if (is_array($param)) {
+        $jobId         = (string) ($param['JobId'] ?? $param['jobId'] ?? '');
+        $statusPayload = $param['JobStatus'] ?? $param['jobStatus'] ?? $param;
+    }
+
+    if ($jobId === '') {
+        $jobId = (string) ($payload['JobId'] ?? $payload['jobId'] ?? '');
+    }
+
+    return ['job_id' => $jobId, 'status_payload' => is_array($statusPayload) ? $statusPayload : []];
+}
+
+/**
+ * Collect job notifications the relay received while the host was unreachable
+ * from Epson's side (the host's bot protection answers Epson's POSTs itself,
+ * so the public inbox is a Worker and this side pulls from it).
+ *
+ * Events are recorded either way; the photo status is only applied when
+ * notifications are switched on, exactly like the direct webhook.
+ *
+ * @return array{ok:bool,pulled:int,applied:int,error:string}
+ */
+function relay_pull_notifications(int $limit = 25): array
+{
+    $out = ['ok' => false, 'pulled' => 0, 'applied' => 0, 'error' => ''];
+
+    if (!relay_configured()) {
+        $out['error'] = 'Relay is not configured.';
+
+        return $out;
+    }
+
+    $response = relay_request('GET', '/hooks?limit=' . max(1, min(100, $limit)));
+
+    if (!$response['ok']) {
+        $out['error'] = $response['error'] !== ''
+            ? $response['error']
+            : 'The relay answered HTTP ' . $response['code'] . '.';
+
+        return $out;
+    }
+
+    $events = $response['json']['events'] ?? null;
+
+    if (!is_array($events)) {
+        $out['error'] = 'The relay returned no event list.';
+
+        return $out;
+    }
+
+    $ids   = [];
+    $epson = EpsonClient::fromSettings();
+
+    foreach ($events as $event) {
+        if (!is_array($event)) {
+            continue;
+        }
+
+        $ids[]  = (int) ($event['id'] ?? 0);
+        $raw    = (string) ($event['body'] ?? '');
+        $parsed = epson_parse_notification($raw);
+
+        if ($parsed['job_id'] === '') {
+            continue;
+        }
+
+        $out['pulled']++;
+        $result = $epson->interpretJobStatus($parsed['status_payload']);
+        $debug  = [
+            'at'      => now(),
+            'method'  => 'POST (relay)',
+            'ip'      => (string) ($event['ip'] ?? ''),
+            'forwarded' => '',
+            'token'   => 'relay',
+            'query_keys' => 'relay',
+            'content_type' => (string) ($event['content_type'] ?? ''),
+            'user_agent' => '',
+            'accept'  => '',
+            'length'  => strlen($raw),
+            'body'    => mb_substr($raw, 0, 1500),
+            'outcome' => 'relay',
+            'status'  => 200,
+            'note'    => 'job=' . mb_substr($parsed['job_id'], 0, 40),
+        ];
+
+        epson_notify_watch_record($debug, 'relay', true);
+
+        $applied = epson_notifications_enabled()
+            ? epson_apply_job_status($parsed['job_id'], $result)
+            : ['matched' => false, 'photo_id' => null, 'status' => 'observed while notifications are off'];
+
+        if (!empty($applied['matched'])) {
+            $out['applied']++;
+        }
+
+        epson_log_notification([
+            'at'       => now(),
+            'job_id'   => mb_substr($parsed['job_id'], 0, 64),
+            'status'   => (string) $result['status'],
+            'photo_id' => $applied['photo_id'] ?? null,
+            'matched'  => !empty($applied['matched']),
+            'result'   => 'relay: ' . (string) $applied['status'],
+        ]);
+    }
+
+    if ($ids !== []) {
+        relay_request('POST', '/hooks/ack', json_encode(['ids' => $ids]));
+    }
+
+    $out['ok'] = true;
+
+    return $out;
+}
+
 /**
  * Current worker/queue health, shared by the dashboard and the watchdog.
  *
@@ -835,6 +1431,10 @@ function pause_printing(string $actor, string $note = ''): void
 
 function resume_printing(string $actor): void
 {
+    // Resuming after a paper or ink stop is the operator saying the printer is
+    // ready again, so the supply hold goes with it.
+    printer_supply_clear();
+
     set_setting('print_queue_paused', '');
     set_setting('print_queue_paused_at', '');
     set_setting('print_queue_paused_by', $actor);
@@ -2486,6 +3086,10 @@ function sync_order_status(int $orderId, ?string $actor = null): string
     db_update('orders', $data, 'id = ?', [$orderId]);
     log_order_event($orderId, $status, $message, $actor);
 
+    if ($status === 'completed') {
+        order_ready_email($orderId);
+    }
+
     return $status;
 }
 
@@ -2528,6 +3132,10 @@ function update_order_status(int $orderId, string $status, string $message, ?str
 
     db_update('orders', $data, 'id = ?', [$orderId]);
     log_order_event($orderId, $status, $message, $actor);
+
+    if ($status === 'completed') {
+        order_ready_email($orderId);
+    }
 }
 
 function order_events(int $orderId): array

@@ -45,6 +45,8 @@ $orders = db_all(
     $params
 );
 
+$queueEstimates = queue_estimates();
+
 $tabs = [
     'all'       => 'All',
     'pending'   => 'Submitted',
@@ -117,7 +119,13 @@ app_start('customer', 'orders', 'My prints', 'Every photo you have sent to the p
                                 </span>
                             </div>
                         </td>
-                        <td><?= status_badge($order['status']) ?></td>
+                        <td>
+                            <?= status_badge($order['status']) ?>
+                            <?php $etaSeconds = $queueEstimates[(int) $order['id']] ?? null; ?>
+                            <?php if ($etaSeconds !== null && in_array($order['status'], ['accepted', 'printing'], true)): ?>
+                                <span class="doc-meta" style="display:block;margin-top:4px">about <?= e(human_duration((int) $etaSeconds)) ?> left</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="nowrap muted">
                             <?= e(paper_size_label($order['paper_size'])) ?> · <?= $order['color_mode'] === 'mono' ? 'B&W' : 'Colour' ?>
                         </td>

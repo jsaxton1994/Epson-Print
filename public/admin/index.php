@@ -128,6 +128,24 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 <?php endif; ?>
 
+<?php $supplyHold = printer_supply_block(); ?>
+<?php if ($supplyHold['active']): ?>
+    <div class="banner banner-danger">
+        <?= icon('alert') ?>
+        <div>
+            <strong>Printing is held: <?= e($supplyHold['label']) ?></strong>
+            <p>
+                The printer has been stopped since
+                <?= $supplyHold['since'] !== '' ? e(time_ago($supplyHold['since'])) : 'just now' ?>.
+                No new photos are sent until the hold is cleared, so the queue waits instead of failing.
+            </p>
+            <div class="banner-actions">
+                <a class="btn btn-danger btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('printer') ?> Clear the hold</a>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if ($attention['count'] > 0): ?>
     <div class="banner banner-danger">
         <?= icon('alert') ?>

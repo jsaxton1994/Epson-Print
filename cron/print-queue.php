@@ -48,6 +48,24 @@ $errors   = [];
 try {
     $epson = EpsonClient::fromSettings();
 
+    // Notifications Epson posted while the host was unreachable are waiting in
+    // the relay: collect them before looking at the printer.
+    if (relay_ready()) {
+        try {
+            $relayPull = relay_pull_notifications();
+
+            if ($relayPull['pulled'] > 0) {
+                $messages[] = $relayPull['pulled'] . ' relay notification'
+                    . ($relayPull['pulled'] === 1 ? '' : 's') . ' collected'
+                    . ($relayPull['applied'] > 0 ? ', ' . $relayPull['applied'] . ' applied.' : '.');
+            } elseif ($relayPull['error'] !== '') {
+                $messages[] = 'Relay check: ' . $relayPull['error'];
+            }
+        } catch (Throwable $e) {
+            $messages[] = 'Relay check failed: ' . $e->getMessage();
+        }
+    }
+
     $queuedOrders = (int) db_val(
         "SELECT COUNT(*) FROM orders o
          WHERE o.status = 'accepted'
@@ -84,6 +102,10 @@ try {
         // The next photo is created and uploaded while the current sheet is
         // still printing, so the printer only waits for a start command.
         $prepared  = null;
+
+        // An unresolved paper or ink stop holds the queue: a job sent now would
+        // only fail, so nothing new is handed over until the printer is ready.
+        $supplyHold = printer_supply_block();
 
         $prepareNext = static function (array $order) use ($epson, &$messages, &$errors): ?array {
             $next = db_one(
@@ -209,9 +231,9 @@ try {
                 $checkedAt = microtime(true);
 
                 try {
-                    $result = $epson->interpretJobStatus(
-                        $epson->jobStatus((string) $printing['epson_job_id'])
-                    );
+                    $jobPayload = $epson->jobStatus((string) $printing['epson_job_id']);
+                    $jobState   = $epson->jobState($jobPayload);
+                    $result     = $epson->interpretJobStatus($jobPayload);
                 } catch (EpsonException $e) {
                     if (!$e->transport) {
                         $errors[] = $e->getMessage();
@@ -269,6 +291,27 @@ try {
                     }
                 }
 
+                // A stopped job is paper, ink or a jam: hold the queue and tell
+                // the operator now, rather than feeding it the next photo.
+                $stopReason = (string) ($jobState['reason'] ?? '');
+
+                if (in_array($stopReason, ['media_empty', 'media_jam', 'marker_supply_empty'], true)) {
+                    $supplyAction = printer_supply_note_stop($stopReason);
+
+                    if ($supplyAction === 'alert') {
+                        $messages[] = 'Printer stopped: ' . printer_supply_label($stopReason)
+                            . '. The queue is held and the operator was emailed.';
+                    } elseif ($supplyAction === 'reminder') {
+                        $messages[] = 'Printer still stopped: ' . printer_supply_label($stopReason) . '.';
+                    }
+
+                    $supplyHold = printer_supply_block();
+                } elseif ($supplyHold['active'] && $result['status'] === 'printing') {
+                    printer_supply_clear();
+                    $supplyHold = printer_supply_block();
+                    $messages[] = 'The printer is moving again; the paper/ink hold was cleared.';
+                }
+
                 // Poll quickly at the start of a sheet so a short job is noticed
                 // at once, keep the long middle light, then watch closely again
                 // as the sheet nears its usual finish time. That keeps the gap
@@ -302,6 +345,13 @@ try {
                 }
 
                 continue;
+            }
+
+            // Nothing may be sent while a paper or ink stop is unresolved.
+            if ($supplyHold['active']) {
+                $messages[] = 'Holding the queue: ' . $supplyHold['label']
+                    . ($supplyHold['since'] !== '' ? ' (since ' . format_date($supplyHold['since']) . ')' : '') . '.';
+                break;
             }
 
             // The printer is free: start the photo uploaded for it, if any.
@@ -568,6 +618,21 @@ try {
     }
 } catch (Throwable $e) {
     $errors[] = 'Epson outage alert failed: ' . $e->getMessage();
+}
+
+// The host cannot alert anyone when the host itself stops, so every run is
+// reported to the outside monitor: no ping for a while and it alarms.
+try {
+    $ping = monitor_ping(
+        $exitCode === 0 && $errors === [] ? 'ok' : 'error',
+        ['queued' => (int) ($queuedOrders ?? 0), 'sent' => (int) ($sentTotal ?? 0), 'errors' => count($errors)]
+    );
+
+    if ($ping !== null && !$ping['ok']) {
+        $messages[] = 'Heartbeat ping failed (HTTP ' . $ping['code'] . ').';
+    }
+} catch (Throwable $e) {
+    $errors[] = 'Heartbeat ping failed: ' . $e->getMessage();
 }
 
 if ($messages !== []) {

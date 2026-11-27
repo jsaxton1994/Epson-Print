@@ -150,13 +150,36 @@ The watchdog emails when:
 
 Alerts go to **Admin → Settings → Queue alert email**, falling back to the support email and then the first admin account. It sends one alert per incident, repeats at most hourly while the problem continues, and sends a recovery email when the queue is healthy again.
 
-An order becomes `printing` as soon as its first photo is handed to the printer (not only when a photo finishes), so the dashboard's **Printing now** count shows the active order while the rest of it is still queued; the count also catches any order that has a photo in `printing` even if its status is stale. The live queue list is ordered like the worker: printing first, then the order accepted longest ago.
+An order becomes `printing` as soon as its first photo is handed to the printer (not only when a photo finishes), so the dashboard's **Printing now** count shows the active order while the rest of it is still queued; the count also catches any order that has a photo in `printing` even if its status is stale. The card names that order and its position (`PF-TYAWD7 · photo 17 of 50`), read from the photo the worker has on the printer, so it advances by itself as sheets finish. The live queue list is ordered like the worker: printing first, then the order accepted longest ago.
 
 The printer card shows what the printer is actually doing right now, refreshed every 20 seconds by `admin/printer-status.php` (the status of the job currently on the printer, or a device check when it is idle): **Printing · photo 4 of 12 · 3 min on the printer**, **Sent, waiting for the printer**, **Out of paper**, **Paper jam**, **Out of ink**, **Idle**, or **Epson unreachable** with the error. The current order is linked so it is one click away. The card paints immediately and fills in when Epson answers, so a slow Epson call never holds up the dashboard.
 
-The dashboard also shows the worker state, last run, watchdog state and oldest accepted order. When anything fails — a rejected photo, or a print the queue released as stuck — the dashboard opens with a red banner counting the orders that need reprinting, followed by a **Needs attention** list of those orders (reference, customer, failed photo count and the printer's message) with an **Open** button on each and a link to **Admin → Orders → Failed**. If both cron jobs are managed by the same cPanel account, a full cron-service outage can stop both; use an external uptime monitor for that case.
+The dashboard also shows the worker state, last run, watchdog state and oldest accepted order. When anything fails — a rejected photo, or a print the queue released as stuck — the dashboard opens with a red banner counting the orders that need reprinting, followed by a **Needs attention** list of those orders (reference, customer, failed photo count and the printer's message) with an **Open** button on each and a link to **Admin → Orders → Failed**. Both cron jobs run on the same host, so neither can report a dead host. **Admin → Settings → Heartbeat** takes a dead-man's-switch ping URL: `cron/print-queue.php` posts to it after every run, appending `/fail` when the run had errors, and an outside monitor alarms when the pings stop. That is the only thing that notices the host or the cron service itself going away.
+
+### Paper, ink and jams
+
+When a job reports `media_empty`, `marker_supply_empty` or `media_jam`, the queue stops sending photos instead of feeding the next one into the same problem. The operator is emailed once, reminded hourly, and the dashboard and **Admin → Maintenance** show the hold with a **Clear and continue** button (pressing **Resume** clears it too). The photo already on the printer keeps being tracked; nothing is marked failed because of it. Clearing the hold does not clear the printer — load the paper or change the ink first.
+
+### Customer estimates and ready email
+
+The customer order page shows a finish estimate and the orders list shows the time left on each queued order. It is arithmetic on real measurements: seconds per sheet come from `order_photos.print_started_at` → `printed_at` over the last week (fallback 185 s), and the queue ahead is walked in the worker's own order, with the sheet currently printing counted only for the time it has left. When an order completes, the customer gets one **Your photos are ready** email (switch it off under Settings → Heartbeat).
 
 Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the printer advertises it, otherwise `ps_kg` (102 × 153 mm) and finally `ps_l`. 5 × 7 uses `ps_2l`/`ps_5x8` and A4 uses `ps_a4`, always checked against the printer's advertised capabilities and falling back to a supported borderless or quality mode.
+
+## Backups
+
+The whole business — orders, customers, settings and every photo — lives in one MySQL database on one shared host, so a nightly copy leaves the host. Add a third cPanel cron job:
+
+```bash
+/usr/local/bin/php /home/snapprin/public_html/cron/backup.php \
+  >> /home/snapprin/backup.log 2>&1
+```
+
+It writes a restorable SQL dump (schema and every table, with the `image_data`/`thumb_data` BLOB columns excluded) and sends it to the relay vault (`/vault/backup/db-….sql.gz`), with an emailed copy to the queue alert address as the fallback when the vault is not reachable. Photos of the order the queue has actually committed to (`accepted` or `printing`) are copied to `/vault/photo/<id>.bin` so an unprinted order survives a lost host; once an order completes those objects are deleted again to keep the vault near the size of the queue. **Admin → Settings → Backups** shows the last run, destination, size and photo count, and can run one on demand. Restore with `gunzip` + `mysql <db> < dump.sql`; the dump's header says what it does and does not contain.
+
+## Relay
+
+`relay/` is a small Cloudflare Worker that does two jobs the shared host cannot: it is a public callback inbox for Epson (the host's bot protection answers those POSTs itself, so they never reach PHP) and it is the backup vault. Deploy it from `relay/deploy.json`; its `RELAY_TOKEN` secret is the token in this site's webhook URL. **Admin → Settings** takes the relay URL, tests it, and has **Point Epson at the relay**, after which `cron/print-queue.php` collects any waiting events on every run. With the relay configured the print worker still polls as before — the relay only makes notifications possible; it does not make them required.
 
 ## Database
 
