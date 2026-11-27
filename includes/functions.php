@@ -1051,6 +1051,36 @@ function printer_live_status(?EpsonClient $epson = null, bool $allowNetwork = tr
 }
 
 /**
+ * Fresh status for a page that must ask Epson on every load. The last reading is
+ * kept and marked stale when Epson cannot be reached, so a timeout never blanks
+ * the cards and the checked-at time stays honest.
+ *
+ * @return array<string,mixed>
+ */
+function printer_live_status_fresh(?EpsonClient $epson = null): array
+{
+    $cached = json_decode((string) setting('printer_status_cache', ''), true);
+    $status = printer_live_status_now($epson);
+    $status['cached'] = false;
+
+    if (($status['state'] ?? '') === 'unreachable') {
+        if (is_array($cached) && !empty($cached['checked_at'])) {
+            $cached['cached']       = true;
+            $cached['stale']        = true;
+            $cached['last_attempt'] = now();
+
+            return $cached;
+        }
+
+        return $status;
+    }
+
+    set_setting('printer_status_cache', json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status;
+}
+
+/**
  * Uncached printer status: the live job on the printer, or a device check when
  * nothing is printing. One Epson call per refresh.
  *

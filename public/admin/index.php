@@ -25,17 +25,6 @@ $counts = db_one(
 
 $queueHealth = queue_health();
 $epsonOutage = epson_outage_state();
-$queueWorkerState = $queueHealth['paused']
-    ? 'Paused'
-    : ($queueHealth['worker_never_run']
-    ? 'Never run'
-    : ($queueHealth['worker_stale']
-        ? 'Stopped'
-        : ($queueHealth['run_in_progress']
-            ? 'Working'
-            : ($queueHealth['last_status'] === 'error'
-            ? 'Failing'
-            : ($queueHealth['last_status'] === 'warning' ? 'Retrying' : 'Healthy')))));
 $attention = orders_needing_attention();
 $queueWatchdogState = $queueHealth['watchdog_last_run'] === null
     ? 'Never run'
@@ -301,33 +290,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
 </section>
 <?php endif; ?>
 
-<section class="panel">
-    <div class="panel-head">
-        <div>
-            <h3>Queue monitoring</h3>
-            <p>Worker heartbeat and alert status</p>
-        </div>
-    </div>
-    <div class="panel-body">
-        <div class="summary-list" style="margin:0">
-            <div class="summary-row"><span>Queue worker</span><strong><?= e($queueWorkerState) ?></strong></div>
-            <div class="summary-row"><span>Worker last run</span><strong><?= $queueHealth['last_run'] !== null ? e(time_ago((string) $queueHealth['last_run'])) : 'Never' ?></strong></div>
-            <div class="summary-row"><span>Sign of life</span><strong><?php
-                if (!$queueHealth['run_in_progress']) {
-                    echo 'No run in progress';
-                } elseif ($queueHealth['liveness_age'] === null) {
-                    echo 'No heartbeat yet';
-                } else {
-                    echo (int) $queueHealth['liveness_age'] . ' s ago';
-                }
-            ?></strong></div>
-            <div class="summary-row"><span>Watchdog</span><strong><?= e($queueWatchdogState) ?></strong></div>
-            <div class="summary-row"><span>Oldest accepted</span><strong><?= $queueHealth['oldest_reference'] !== null ? e((string) $queueHealth['oldest_reference']) . ' · ' . (int) floor(((int) $queueHealth['oldest_age']) / 60) . ' min' : 'None' ?></strong></div>
-            <div class="summary-row"><span>Queue alerts</span><strong><?= e($queueHealth['alert_email'] !== '' ? (string) $queueHealth['alert_email'] : 'Not configured') ?></strong></div>
-        </div>
-    </div>
-</section>
-
 <div class="stats-grid" style="margin-top:20px">
     <?php
     stat_card('Waiting in queue', (string) $counts['accepted'], 'clock', 'amber', $counts['pending'] > 0 ? $counts['pending'] . ' awaiting acceptance' : 'No new orders');
@@ -432,66 +394,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 
     <div class="stack">
-        <div class="device-card">
-            <div class="device-top">
-                <span class="device-label">Epson Connect</span>
-                <?php if ($epson->isConnected()): ?>
-                    <span class="device-state"><span class="status-dot"></span> Linked</span>
-                <?php else: ?>
-                    <span class="device-state is-off">Not linked</span>
-                <?php endif; ?>
-            </div>
-            <?php /* Filled in by dashboard.js so a slow Epson request never holds up the page. */ ?>
-            <div class="device-live" data-printer-live
-                 data-status-url="<?= e(url('admin/printer-status.php')) ?>"
-                 data-state="checking">
-                <div class="device-live-head">
-                    <span class="status-dot"></span>
-                    <strong data-live-label>Checking the printer…</strong>
-                    <span class="device-live-time" data-live-time>live</span>
-                </div>
-                <p class="device-live-detail" data-live-detail>Reading the current job from Epson.</p>
-                <a class="device-live-link" data-live-link href="#" hidden>
-                    <span data-live-order></span> <?= icon('arrow-right') ?>
-                </a>
-            </div>
-
-            <div class="device-name">
-                <span class="device-icon"><?= icon('printer') ?></span>
-                <div>
-                    <h3><?= e($epson->isConnected() ? $epson->deviceName() : EPSON_PRINTER_MODEL) ?></h3>
-                    <p><?= $epson->isConnected() ? 'Ready for live photo jobs' : 'Authorise to print automatically' ?></p>
-                </div>
-            </div>
-            <div class="device-meta">
-                <?php if ($epson->isConnected()): ?>
-                    <span class="device-chip"><?= icon('check') ?> Photo mode</span>
-                    <span class="device-chip"><?= icon('wifi') ?> Cloud linked</span>
-                <?php else: ?>
-                    <span class="device-chip"><?= icon('gear') ?> Add credentials in Printer Settings</span>
-                <?php endif; ?>
-            </div>
-            <div class="device-actions">
-                <a class="btn btn-sm btn-primary" href="<?= e(url('admin/printer-settings.php')) ?>">
-                    <?= icon('printer') ?> <?= $epson->isConnected() ? 'Printer settings' : 'Set up printing' ?>
-                </a>
-            </div>
-        </div>
-
-        <section class="panel">
-            <div class="panel-head"><h3>Service health</h3></div>
-            <div class="panel-body">
-                <div class="summary-list">
-                    <div class="summary-row"><span>Queue status</span><strong><?= setting('accepting_orders', '1') === '1' ? 'Accepting orders' : 'Paused' ?></strong></div>
-                    <div class="summary-row"><span>Failed jobs</span><strong><?= (int) $counts['failed'] ?></strong></div>
-                    <div class="summary-row"><span>All-time orders</span><strong><?= (int) $counts['total'] ?></strong></div>
-                    <div class="summary-row"><span>Photos per order</span><strong>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
-                    <div class="summary-row"><span>Price per print</span><strong>Free</strong></div>
-                </div>
-                <div class="free-callout"><?= icon('sparkles') ?> Every photo prints at no cost</div>
-            </div>
-        </section>
-
         <section class="panel">
             <div class="panel-head"><h3>Quick links</h3></div>
             <div class="panel-body pad-sm">

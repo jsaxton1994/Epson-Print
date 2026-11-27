@@ -239,6 +239,20 @@
     border-color: #dde5f2;
 }
 
+/* Status cards that read better as a list: one full-width row each, so a long
+   note has room instead of stretching a half-width box. */
+.stats-grid.is-stacked {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+}
+
+.stats-grid.is-stacked .stat-card {
+    align-items: center;
+    padding: 16px 20px;
+}
+
+.stats-grid.is-stacked .stat-hint { max-width: 82ch; }
+
 .stat-icon {
     display: inline-flex;
     align-items: center;

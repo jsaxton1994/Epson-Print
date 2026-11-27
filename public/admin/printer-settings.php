@@ -18,8 +18,7 @@ if (is_post()) {
     $action = input('action');
 
     if ($action === 'refresh') {
-        set_setting('printer_status_cache', '');
-        $fresh = printer_live_status($epson);
+        $fresh = printer_live_status_fresh($epson);
 
         if (($fresh['state'] ?? '') === 'unreachable') {
             flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
@@ -97,10 +96,9 @@ if (is_post()) {
 $epsonFresh = EpsonClient::fromSettings();
 $deviceName = $epsonFresh->deviceName();
 $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
-// This page asks Epson every time it opens, so the cards describe the printer
-// now rather than whatever the dashboard last cached.
-set_setting('printer_status_cache', '');
-$live       = printer_live_status($epsonFresh);
+// This page asks Epson every time it opens, and keeps the last reading marked
+// stale if Epson does not answer, so a timeout never blanks the cards.
+$live       = printer_live_status_fresh($epsonFresh);
 $hold       = printer_supply_block();
 
 // Ink and paper come from what the printer reports. Epson Connect API v2 only
@@ -129,22 +127,56 @@ if ($hold['active'] && in_array($hold['reason'], ['media_empty', 'media_jam'], t
 app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, its ink and paper state, and the credentials behind the link.');
 ?>
 
-<div class="stats-grid">
+<div class="device-card">
+    <div class="device-top">
+        <span class="device-label">Epson Connect</span>
+        <?php if ($epsonFresh->isConnected()): ?>
+            <span class="device-state"><span class="status-dot"></span> Linked</span>
+        <?php else: ?>
+            <span class="device-state is-off">Not linked</span>
+        <?php endif; ?>
+    </div>
+    <div class="device-name">
+        <span class="device-icon"><?= icon('printer') ?></span>
+        <div>
+            <h3><?= e($epsonFresh->isConnected() ? $deviceName : EPSON_PRINTER_MODEL) ?></h3>
+            <p>
+                <?php if ($epsonFresh->isConnected()): ?>
+                    Serial <?= e(setting('epson_device_serial', '') !== '' ? (string) setting('epson_device_serial', '') : 'not reported') ?> · Connect v2
+                <?php else: ?>
+                    Authorise the printer to send jobs automatically
+                <?php endif; ?>
+            </p>
+        </div>
+    </div>
+    <div class="device-meta">
+        <span class="device-chip"><?= icon('image') ?> Photo mode</span>
+        <span class="device-chip"><?= icon('droplet') ?> No tank data from Epson</span>
+        <?php if (setting('accepting_orders', '1') === '1'): ?>
+            <span class="device-chip"><?= icon('check') ?> Queue open</span>
+        <?php else: ?>
+            <span class="device-chip"><?= icon('clock') ?> Queue paused</span>
+        <?php endif; ?>
+    </div>
+    <div class="device-actions">
+        <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="refresh">
+            <button class="btn btn-sm btn-primary" type="submit"><?= icon('refresh') ?> Refresh printer state</button>
+        </form>
+        <a class="btn btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('wrench') ?> Maintenance</a>
+    </div>
+</div>
+
+<p class="muted" style="font-size:.8rem;margin:10px 2px 18px">
+    <?= !empty($live['never_checked']) ? 'Not checked yet' : 'Checked ' . e(time_ago((string) $live['checked_at'])) ?>
+    <?= !empty($live['stale']) ? ' · last known reading — Epson did not answer' : '' ?>
+</p>
+
+<div class="stats-grid is-stacked">
     <?php stat_card('Printer', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
     <?php stat_card('Ink', $inkValue, 'droplet', $inkTone, $inkHint); ?>
     <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
-</div>
-
-<div class="table-actions" style="justify-content:flex-start;margin:14px 0 20px">
-    <form method="post">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="refresh">
-        <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Refresh printer state</button>
-    </form>
-    <span class="muted" style="font-size:.82rem">
-        <?= !empty($live['never_checked']) ? 'Not checked yet' : 'Checked ' . e(time_ago((string) $live['checked_at'])) ?>
-        <?= !empty($live['stale']) ? ' · cached while Epson is unreachable' : '' ?>
-    </span>
 </div>
 
 <div class="settings-layout">
@@ -276,8 +308,6 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
                 <div class="profile-facts">
                     <div class="profile-fact"><span>Model</span><strong><?= e(EPSON_PRINTER_MODEL) ?></strong></div>
                     <div class="profile-fact"><span>API</span><strong>Connect v2</strong></div>
-                    <div class="profile-fact"><span>Device</span><strong><?= e($epsonFresh->isConnected() ? $deviceName : 'Not linked') ?></strong></div>
-                    <div class="profile-fact"><span>Serial</span><strong><?= e(setting('epson_device_serial', '') !== '' ? (string) setting('epson_device_serial', '') : '—') ?></strong></div>
                     <div class="profile-fact"><span>Queue</span><strong><?= setting('accepting_orders', '1') === '1' ? 'Open' : 'Paused' ?></strong></div>
                 </div>
                 <a class="btn btn-ghost btn-block btn-sm mt-3" href="<?= e(url('admin/maintenance.php')) ?>">
