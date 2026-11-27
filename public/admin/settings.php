@@ -98,6 +98,45 @@ if (is_post()) {
         redirect('admin/settings.php');
     }
 
+    if (in_array($action, ['notify_debug_clear', 'notify_sink_register', 'notify_restore'], true)) {
+        if ($action === 'notify_debug_clear') {
+            set_setting('epson_notify_debug', '');
+            flash('success', 'Callback diagnostics cleared.');
+            redirect('admin/settings.php');
+        }
+
+        if (!$epson->isConnected()) {
+            flash('error', 'Link the printer before changing the callback URL.');
+            redirect('admin/settings.php');
+        }
+
+        $epson->bypassCircuit = true;
+
+        try {
+            if ($action === 'notify_sink_register') {
+                $sink = trim((string) ($_POST['sink_url'] ?? ''));
+
+                if (!preg_match('#^https://#i', $sink) || strlen($sink) < 11 || strlen($sink) > 2048) {
+                    flash('error', 'Enter a full https:// callback URL (11-2048 characters).');
+                    redirect('admin/settings.php');
+                }
+
+                // Diagnostic only: parks Epson's notifications on a temporary bin.
+                $epson->setNotification(true, $sink);
+                flash('success', 'Epson will send job notifications to ' . $sink . ' for now. Point it back at this site when the test is over.');
+            }
+
+            if ($action === 'notify_restore') {
+                $epson->setNotification(true, epson_notify_url());
+                flash('success', 'Epson is pointed back at this site\'s webhook.');
+            }
+        } catch (EpsonException $e) {
+            flash('error', 'Epson did not accept the callback URL: ' . $e->getMessage());
+        }
+
+        redirect('admin/settings.php');
+    }
+
     if ($action === 'notify_check') {
         if (!$epson->isConnected()) {
             flash('error', 'Link the printer first.');
@@ -431,6 +470,25 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                             <span class="mono">token_mismatch</span> means it was turned away at the door, and any other outcome
                             carries the body Epson sent. Remove this block together with the diagnostic helpers when it is no longer needed.
                         </p>
+                        <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap;margin-bottom:10px">
+                            <form method="post">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="notify_debug_clear">
+                                <button class="btn btn-ghost btn-sm" type="submit"><?= icon('trash') ?> Clear diagnostics</button>
+                            </form>
+                            <form method="post" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="notify_sink_register">
+                                <input class="input" type="url" name="sink_url" placeholder="https://webhook.site/…" style="min-width:260px" required>
+                                <button class="btn btn-soft btn-sm" type="submit"><?= icon('bolt') ?> Point Epson at a test bin</button>
+                            </form>
+                            <form method="post">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="notify_restore">
+                                <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Restore our webhook</button>
+                            </form>
+                        </div>
+
                         <?php if ($notifyDebug === []): ?>
                             <p class="muted" style="font-size:.82rem">No request has reached the endpoint yet.</p>
                         <?php else: ?>
