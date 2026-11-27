@@ -105,7 +105,7 @@ $hold       = printer_supply_block();
 // the printer itself has flagged a stop.
 $inkTone  = 'brand';
 $inkValue = 'Not reported';
-$inkHint  = 'Epson Connect does not publish tank levels. Check the ink tanks on the printer or in Epson Smart Panel; printing holds itself if a job reports empty ink.';
+$inkHint  = 'Epson Connect reports only the model, serial and link — check the tanks or Epson Smart Panel.';
 
 if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
     $inkTone  = 'amber';
