@@ -46,6 +46,47 @@ if (is_post()) {
         redirect('admin/maintenance.php');
     }
 
+    if ($action === 'timing_report') {
+        // Temporary diagnostics: how long a sheet really takes, and how much of
+        // the gap between sheets is the printer and how much is the queue.
+        @set_time_limit(60);
+        header('Content-Type: application/json; charset=utf-8');
+
+        $rows = db_all(
+            'SELECT p.id, p.order_id, p.status, p.position, p.created_at, '
+            . (print_started_column_ready() ? 'p.print_started_at, ' : 'NULL AS print_started_at, ')
+            . 'p.printed_at, o.reference
+             FROM order_photos p
+             JOIN orders o ON o.id = p.order_id
+             WHERE p.printed_at IS NOT NULL
+             ORDER BY p.printed_at DESC
+             LIMIT 30'
+        );
+
+        $prevPrint = null;
+        $out       = ['at' => now(), 'worker_last_run' => (string) setting('print_queue_last_run', ''), 'sheets' => []];
+
+        foreach ($rows as $row) {
+            $printedTs = strtotime((string) $row['printed_at']) ?: null;
+            $startedTs = !empty($row['print_started_at']) ? (strtotime((string) $row['print_started_at']) ?: null) : null;
+
+            $out['sheets'][] = [
+                'reference'    => (string) $row['reference'],
+                'position'     => (int) $row['position'],
+                'started'      => $row['print_started_at'],
+                'printed'      => (string) $row['printed_at'],
+                'print_secs'   => $startedTs !== null && $printedTs !== null ? $printedTs - $startedTs : null,
+                'gap_secs'     => $prevPrint !== null && $startedTs !== null ? $startedTs - $prevPrint : null,
+                'since_prev'   => $prevPrint !== null && $printedTs !== null ? $printedTs - $prevPrint : null,
+            ];
+
+            $prevPrint = $printedTs;
+        }
+
+        echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     if ($action === 'net_probe') {
         // Temporary diagnostics: what this server can actually reach, so a host
         // egress problem can be told apart from an Epson-side block.
