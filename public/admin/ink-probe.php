@@ -43,19 +43,5 @@ foreach ([
     }
 }
 
-$job = db_one(
-    "SELECT epson_job_id FROM photos
-     WHERE epson_job_id IS NOT NULL AND epson_job_id <> ''
-     ORDER BY id DESC LIMIT 1"
-);
-
-if (is_array($job) && (string) $job['epson_job_id'] !== '') {
-    try {
-        $out['job_status'] = $epson->jobStatus((string) $job['epson_job_id']);
-    } catch (EpsonException $e) {
-        $out['job_status'] = 'ERR ' . $e->statusCode . ': ' . $e->getMessage();
-    }
-}
-
 header('Content-Type: application/json; charset=utf-8');
 echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
