@@ -1,19 +1,19 @@
 <?php
 /**
- * Nightly off-host backup.
+ * Nightly database backup.
  *
  * Run from cPanel cron (CLI only), for example once a night:
  *
  *   /usr/local/bin/php /home/snapprin/public_html/cron/backup.php \
  *     >> /home/snapprin/backup.log 2>&1
  *
- * The database is dumped (photos excluded) and sent to the relay vault, with an
- * emailed copy as the fallback. Photos for orders that have not printed yet are
- * copied to the vault too, a bounded number per run.
+ * The database is dumped (schema and rows, photo BLOBs excluded) and written
+ * gzipped into the backup folder: `backups/` beside public_html by default,
+ * which the web server does not serve and a deploy does not touch. Only the
+ * newest BACKUP_KEEP_FILES dumps are kept.
  *
- * Restore: download the newest backup from the vault (or the email), gunzip it
- * and import with `mysql db < backup.sql`. Photo files in the vault are the
- * original uploads, keyed by photo id.
+ * Restore: download the newest dump, gunzip it and import with
+ * `mysql db < db-YYYYmmdd-HHMMSS.sql`.
  */
 
 declare(strict_types=1);
@@ -49,7 +49,7 @@ try {
     $line = 'backup ' . ($result['ok'] ? 'ok' : 'FAILED') . ': ' . $result['note']
         . ' dump=' . human_size($result['bytes'])
         . ' rows=' . $result['rows']
-        . ' photos=' . $result['photos']
+        . ' file=' . $result['file']
         . ' where=' . $result['where'];
 
     if ($result['ok']) {

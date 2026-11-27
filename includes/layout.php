@@ -253,7 +253,7 @@ function app_start(string $role, string $active, string $title, string $subtitle
         </nav>
 
         <div class="sidebar-foot">
-            <a class="user-card" href="<?= e(url($isAdmin ? 'admin/settings.php' : 'customer/profile.php')) ?>">
+            <a class="user-card" href="<?= e(url($isAdmin ? 'admin/account.php' : 'customer/profile.php')) ?>">
                 <span class="avatar"><?= e(initials((string) $user['name'])) ?></span>
                 <span class="user-card-text">
                     <strong><?= e($user['name']) ?></strong>
@@ -276,7 +276,7 @@ function app_start(string $role, string $active, string $title, string $subtitle
             </div>
             <div class="topbar-actions">
                 <a class="btn btn-ghost btn-sm topbar-site" href="<?= e(url('public/index.php')) ?>"><?= icon('arrow-left') ?> Back to site</a>
-                <a class="avatar avatar-sm" href="<?= e(url($isAdmin ? 'admin/settings.php' : 'customer/profile.php')) ?>"><?= e(initials((string) $user['name'])) ?></a>
+                <a class="avatar avatar-sm" href="<?= e(url($isAdmin ? 'admin/account.php' : 'customer/profile.php')) ?>" title="Your account"><?= e(initials((string) $user['name'])) ?></a>
             </div>
         </header>
 

@@ -107,8 +107,6 @@ Accepted orders are printed without another click. Add this command to a cPanel 
   >> /home/snapprin/print-queue.log 2>&1
 ```
 
-**Job notifications (relay).** Epson can push job status changes instead of the queue asking for them. The host's bot protection answers Epson's POSTs before PHP runs, so the public callback lives on the relay in `relay/`: it stores each event and `cron/print-queue.php` collects them at the start of every run, applying the status through `epson_apply_job_status()` (a photo that is no longer `printing` is left alone, so repeated events are harmless). Notifications are **off** by default and polling is the working path; with them on, the worker's own checks drop to `PRINT_POLL_SAFETY_SECONDS` (20 s) as a safety net. One long random token protects the inbox: it is shown in **Admin → Settings → Relay**, goes into the relay's `RELAY_TOKEN` secret, and travels in the callback URL so Epson needs no header. Events are recorded in `epson_notify_log` and listed on the settings page. **Stop using notifications** switches the worker back to normal polling without touching the relay.
-
 **Surviving Epson outages.** The hosting network intermittently cannot open a connection to `api.epsonconnect.com` / `auth.epsonconnect.com` (cURL 7 or 28 with 0 bytes). Four things keep the queue alive through that: a **20 s connect timeout** instead of 10 s, so TCP's own retransmits get a chance to finish instead of being cut off just before the 15 s retry; a **fail-fast circuit** that opens for 60 s after two consecutive transport failures, so the worker and dashboard stop stacking up timeouts; **adaptive status polling** (5 s normally, backing off to 30 s while Epson is down); and a **stale-tolerant status card** that keeps showing the last known printer state for up to 10 minutes rather than replacing it with an error. Every attempt is logged in a small ring buffer (`epson_request_log`, `epson_request_stats`), shown on **Maintenance → Epson connection** with a success rate, the last eight attempts and a **Test** button that makes one request with the circuit bypassed. Photos are never lost: a send that fails before the print command returns to `pending`, and a status check that cannot reach Epson is retried without failing the run.
 
 On top of that, outages are tracked as incidents. Every transport failure records `epson_outage_since`, a failure count and the last error; the first successful request afterwards records `epson_outage_recovered_at` and the length. The worker emails the queue alert address once an outage passes `EPSON_OUTAGE_ALERT_MINUTES` (10) with orders waiting, repeats every `EPSON_OUTAGE_REMINDER_MINUTES` (60) while it lasts, and sends one recovery note — all sent after the worker lock is released so a slow mailer cannot block the next run. The dashboard shows a dedicated "Epson Connect has been unreachable for N minutes" banner (waiting orders, failed attempts, whether the alert already went out), and Maintenance → Epson connection shows the outage start, attempt count, last recovery and how long it lasted. The watchdog stays quiet about `queue_stalled` while an outage is active so nobody gets two emails for the same problem.
@@ -154,32 +152,27 @@ The dashboard also shows the worker state, last run, watchdog state and oldest a
 
 A deadline only says how long a run may take, not that it is still doing anything, so the run also writes a liveness timestamp — at every loop iteration, while waiting between status checks, and from inside slow Epson uploads/status calls (throttled to one write every few seconds). If a run is inside its slice but that timestamp is older than `PRINT_QUEUE_LIVENESS_SECONDS` (60 s), the run is treated as hung: the dashboard shows **Stopped** and the watchdog alerts, without waiting for the deadline. The dashboard's **Sign of life** row shows how long ago the last heartbeat was. A crashed run clears nothing, so its liveness goes stale within a minute.
 
-Both cron jobs run on the same host, so neither can report a dead host. **Admin → Settings → Heartbeat** takes a dead-man's-switch ping URL: `cron/print-queue.php` posts to it after every run, appending `/fail` when the run had errors, and an outside monitor alarms when the pings stop. That is the only thing that notices the host or the cron service itself going away.
 
 ### Paper, ink and jams
 
 When a job reports `media_empty`, `marker_supply_empty` or `media_jam`, the queue stops sending photos instead of feeding the next one into the same problem. The operator is emailed once, reminded hourly, and the dashboard and **Admin → Maintenance** show the hold with a **Clear and continue** button (pressing **Resume** clears it too). The photo already on the printer keeps being tracked; nothing is marked failed because of it. Clearing the hold does not clear the printer — load the paper or change the ink first.
 
-### Customer estimates and ready email
+### Customer estimates
 
-The customer order page shows a finish estimate and the orders list shows the time left on each queued order. It is arithmetic on real measurements: seconds per sheet come from `order_photos.print_started_at` → `printed_at` over the last week (fallback 185 s), and the queue ahead is walked in the worker's own order, with the sheet currently printing counted only for the time it has left. When an order completes, the customer gets one **Your photos are ready** email (switch it off under Settings → Heartbeat).
+The customer order page shows a finish estimate and the orders list shows the time left on each queued order. It is arithmetic on real measurements: seconds per sheet come from `order_photos.print_started_at` → `printed_at` over the last week (fallback 185 s), and the queue ahead is walked in the worker's own order, with the sheet currently printing counted only for the time it has left.
 
 Print sizes are mapped to Epson paper IDs at request time: `ps_4x6` when the printer advertises it, otherwise `ps_kg` (102 × 153 mm) and finally `ps_l`. 5 × 7 uses `ps_2l`/`ps_5x8` and A4 uses `ps_a4`, always checked against the printer's advertised capabilities and falling back to a supported borderless or quality mode.
 
 ## Backups
 
-The whole business — orders, customers, settings and every photo — lives in one MySQL database on one shared host, so a nightly copy leaves the host. Add a third cPanel cron job:
+The whole business — orders, customers, settings and every photo — lives in one MySQL database on one shared host, so a nightly copy is kept on the host itself. Add a cPanel cron job:
 
 ```bash
 /usr/local/bin/php /home/snapprin/public_html/cron/backup.php \
   >> /home/snapprin/backup.log 2>&1
 ```
 
-It writes a restorable SQL dump (schema and every table, with the `image_data`/`thumb_data` BLOB columns excluded) and sends it to the relay vault (`/vault/backup/db-….sql.gz`), with an emailed copy to the queue alert address as the fallback when the vault is not reachable. Photos of the order the queue has actually committed to (`accepted` or `printing`) are copied to `/vault/photo/<id>.bin` so an unprinted order survives a lost host; once an order completes those objects are deleted again to keep the vault near the size of the queue. **Admin → Settings → Backups** shows the last run, destination, size and photo count, and can run one on demand. Restore with `gunzip` + `mysql <db> < dump.sql`; the dump's header says what it does and does not contain.
-
-## Relay
-
-`relay/` is a small Cloudflare Worker that does two jobs the shared host cannot: it is a public callback inbox for Epson (the host's bot protection answers those POSTs itself, so they never reach PHP) and it is the backup vault. Deploy it from `relay/deploy.json`; its `RELAY_TOKEN` secret is the callback token shown under **Admin → Settings → Relay**. **Admin → Settings** takes the relay URL, tests it, and has **Point Epson at the relay**, after which `cron/print-queue.php` collects any waiting events on every run. With the relay configured the print worker still polls as before — the relay only makes notifications possible; it does not make them required.
+It writes a restorable SQL dump (schema and every table, with the `image_data`/`thumb_data` BLOB columns excluded, since the photos themselves are far too large to duplicate nightly) and gzips it into `backups/` beside `public_html` — outside the web root, so the files cannot be fetched over HTTP and a deploy that copies into `public_html` cannot overwrite them. The folder also gets an Apache `deny` file as a second line of defence, and only the newest `BACKUP_KEEP_FILES` (10) dumps are kept. **Admin → Settings → Backups** shows the last run, file, size, folder and how many dumps are held, and can run one on demand. Restore with `gunzip` + `mysql <db> < db-….sql`; the dump's header says what it does and does not contain.
 
 ## Database
 

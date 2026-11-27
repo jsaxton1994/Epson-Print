@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.4.7';
+const APP_VERSION = '1.5.0';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -99,7 +99,6 @@ const PRINT_POLL_SLOW_SECONDS = 20;  // the long middle: stay light while the ro
 const PRINT_POLL_TAIL_START_SECONDS = 140;
 const PRINT_POLL_TAIL_END_SECONDS   = 260;  // longer sheets fall back to the slow interval
 const PRINT_POLL_TAIL_SECONDS       = 5;
-const PRINT_POLL_SAFETY_SECONDS = 20; // safety net when Epson pushes job updates
 
 // How long the dashboard reuses a printer status before asking Epson again.
 const PRINT_STATUS_CACHE_SECONDS = 45;
@@ -120,12 +119,9 @@ const PRINT_SUPPLY_REMINDER_MINUTES = 60;
 // quality 4 x 6 measures 165-199 s on this printer.
 const PRINT_ESTIMATE_SECONDS = 185;
 
-// Backups. The database dump leaves the host for the relay vault (and the
-// alert inbox as a fallback), and photos still waiting to print are copied
-// there too, a bounded number per run.
-const BACKUP_PHOTOS_PER_RUN   = 200;
-const BACKUP_PHOTO_BYTES_RUN  = 200 * 1024 * 1024;
-const BACKUP_MAIL_MAX_BYTES   = 4 * 1024 * 1024;
+// Backups. A nightly gzipped SQL dump is written to a folder outside the web
+// root; only the newest few are kept so the host's disk does not fill up.
+const BACKUP_KEEP_FILES       = 10;
 
 const PRINT_QUEUE_STALE_MINUTES = 10;
 // While a run holds the lock, the worker refreshes a liveness timestamp on every

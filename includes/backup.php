@@ -1,17 +1,15 @@
 <?php
 /**
- * Off-host backups.
+ * Database backups.
  *
- * The whole business sits in one MySQL database on one shared host, including
- * every customer photo. This builds a restorable SQL dump (schema + rows, with
- * the large image columns left out) and sends it to the relay vault, so a lost
- * host, a bad migration or an accidental DELETE does not take the orders with
- * it. Photos that are still waiting to print are copied to the vault too, a
- * bounded number per run, because those are the ones that can no longer be
- * reprinted from anywhere else.
+ * The whole business sits in one MySQL database on one shared host. This builds
+ * a restorable SQL dump (schema + rows, with the large image columns left out)
+ * and writes it, gzipped, into a folder that is not served by the web server:
+ * by default `backups/` beside `public_html`, which a deploy never touches.
+ * The folder gets an Apache deny file as a second line of defence, and only the
+ * newest few dumps are kept.
  *
- * The vault is the relay Worker (see relay/README.md); PHP never needs cloud
- * credentials, only the relay URL and its token from Admin -> Settings.
+ * Restore: gunzip the file and import it with `mysql db < db-YYYYmmdd-HHMMSS.sql`.
  */
 
 declare(strict_types=1);
@@ -27,12 +25,48 @@ function backup_tables(): array
 }
 
 /**
+ * Where dumps are written.
+ *
+ * The first choice is a sibling of the web root, so the files cannot be fetched
+ * over HTTP and a deployment that copies into public_html cannot overwrite them.
+ * If that directory cannot be created or written, an in-app folder is used; it
+ * is still denied by .htaccess.
+ *
+ * @return array{dir:string,reliable:bool}
+ */
+function backup_directory(): array
+{
+    $outside = dirname(__DIR__, 2) . '/backups';
+
+    foreach ([$outside, dirname(__DIR__) . '/storage/backups'] as $index => $dir) {
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+        }
+
+        if (!is_dir($dir) || !is_writable($dir)) {
+            continue;
+        }
+
+        $htaccess = $dir . '/.htaccess';
+
+        if (!is_file($htaccess)) {
+            @file_put_contents($htaccess, "Require all denied\n<IfModule !mod_authz_core.c>\n    Order allow,deny\n    Deny from all\n</IfModule>\n");
+        }
+
+        return ['dir' => $dir, 'reliable' => $index === 0];
+    }
+
+    return ['dir' => '', 'reliable' => false];
+}
+
+/**
  * Build a restorable SQL dump as a gzipped string.
  *
- * BLOB columns are skipped: they are the photos, which are far too large for a
- * nightly dump and are backed up individually into the vault instead.
+ * BLOB columns are skipped: they are the photos. Copying every customer image
+ * into a nightly file would dwarf the database and fill the host's disk, and the
+ * originals are still in the database itself.
  *
- * @return array{gz:string,bytes:int,int:int,int} bytes = dump size, int = rows
+ * @return array{gz:string,bytes:int,rows:int}
  */
 function backup_build_dump(): array
 {
@@ -40,7 +74,7 @@ function backup_build_dump(): array
     $out  = "-- PrintFree database backup\n";
     $out .= '-- version: ' . APP_VERSION . "\n";
     $out .= '-- created: ' . now() . " (UTC)\n";
-    $out .= "-- image_data and thumb_data are excluded; photos live in the vault.\n";
+    $out .= "-- image_data and thumb_data are excluded (photos stay in the database).\n";
     $out .= "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n";
 
     $rowsTotal = 0;
@@ -113,175 +147,115 @@ function backup_build_dump(): array
 }
 
 /**
- * Email the dump to the alert address when the vault is not reachable.
+ * Existing dumps, newest first.
  *
- * A few hundred kilobytes of metadata is far better than nothing, and the
- * mailbox is already off the host.
+ * @return list<array{name:string,path:string,bytes:int,at:int}>
  */
-function backup_mail_dump(string $gz, string $name): bool
+function backup_files(): array
 {
-    $to = queue_alert_recipient();
+    $dir = backup_directory()['dir'];
 
-    if ($to === '' || $gz === '' || strlen($gz) > BACKUP_MAIL_MAX_BYTES) {
-        return false;
+    if ($dir === '') {
+        return [];
     }
 
-    $support = trim((string) setting('support_email', ''));
-    $domain  = str_contains($support, '@') ? substr(strrchr($support, '@'), 1) : 'localhost';
-    $from    = 'no-reply@' . ($domain !== '' ? $domain : 'localhost');
-    $site    = str_replace(["\r", "\n"], ' ', site_name());
-    $boundary = 'pf-' . bin2hex(random_bytes(8));
+    $files = glob($dir . '/db-*.sql.gz') ?: [];
+    $out   = [];
 
-    $body = '--' . $boundary . "\r\n"
-        . "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
-        . "Automatic PrintFree database backup attached.\r\n"
-        . "Restore: gunzip, then import into MySQL.\r\n"
-        . "Photos are in the relay vault, not in this file.\r\n\r\n"
-        . '--' . $boundary . "\r\n"
-        . 'Content-Type: application/gzip; name="' . $name . "\"\r\n"
-        . "Content-Transfer-Encoding: base64\r\n"
-        . 'Content-Disposition: attachment; filename="' . $name . "\"\r\n\r\n"
-        . chunk_split(base64_encode($gz)) . "\r\n"
-        . '--' . $boundary . "--";
+    foreach ($files as $path) {
+        $out[] = [
+            'name'  => basename($path),
+            'path'  => $path,
+            'bytes' => (int) @filesize($path),
+            'at'    => (int) @filemtime($path),
+        ];
+    }
 
-    $headers = implode("\r\n", [
-        'From: ' . $site . ' <' . $from . '>',
-        'MIME-Version: 1.0',
-        'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
-        'X-Mailer: PHP/' . phpversion(),
-    ]);
+    usort($out, static fn(array $a, array $b): int => $b['at'] <=> $a['at']);
 
-    return @mail($to, '[' . $site . '] Backup ' . gmdate('Y-m-d'), $body, $headers);
+    return $out;
+}
+
+/** Delete all but the newest BACKUP_KEEP_FILES dumps. */
+function backup_prune(): void
+{
+    foreach (array_slice(backup_files(), BACKUP_KEEP_FILES) as $old) {
+        @unlink($old['path']);
+    }
 }
 
 /**
- * Run one backup: dump, upload, copy queued photos, record the result.
+ * Run one backup: dump the database, write it into the backup folder, record
+ * the result for the settings page.
  *
- * @return array{ok:bool,note:string,bytes:int,rows:int,photos:int,where:string}
+ * @return array{ok:bool,note:string,bytes:int,rows:int,where:string,file:string}
  */
-function run_backup(bool $includePhotos = true): array
+function run_backup(): array
 {
     @set_time_limit(240);
 
-    $result = ['ok' => false, 'note' => '', 'bytes' => 0, 'rows' => 0, 'photos' => 0, 'where' => 'none'];
+    $result = ['ok' => false, 'note' => '', 'bytes' => 0, 'rows' => 0, 'where' => '', 'file' => ''];
     $dump   = backup_build_dump();
 
     if ($dump['gz'] === '') {
         $result['note'] = 'The database dump could not be compressed.';
-        set_setting('backup_last_run', now());
-        set_setting('backup_last_status', 'error');
-        set_setting('backup_last_note', $result['note']);
+        backup_record($result);
 
         return $result;
     }
 
     $result['bytes'] = $dump['bytes'];
     $result['rows']  = $dump['rows'];
-    $name            = 'db-' . gmdate('Ymd-His') . '.sql.gz';
-    $uploaded        = false;
 
-    if (relay_ready()) {
-        $put = relay_request('PUT', '/vault/backup/' . $name, $dump['gz'], 120, 'application/gzip');
+    $target = backup_directory();
 
-        if ($put['ok']) {
-            $uploaded       = true;
-            $result['where'] = 'relay vault';
-        } else {
-            $result['note'] = 'Vault upload failed: ' . ($put['error'] !== '' ? $put['error'] : 'HTTP ' . $put['code']) . '. ';
-        }
-    } else {
-        $result['note'] = 'Relay is not ready (set its RELAY_TOKEN and test it). ';
+    if ($target['dir'] === '') {
+        $result['note'] = 'No writable backup folder. Create one outside public_html and make it writable.';
+        backup_record($result);
+
+        return $result;
     }
 
-    if (!$uploaded && backup_mail_dump($dump['gz'], $name)) {
-        $uploaded       = true;
-        $result['where'] = 'email';
-        $result['note'] .= 'Dump emailed to the alert address instead.';
+    $name = 'db-' . gmdate('Ymd-His') . '.sql.gz';
+    $path = $target['dir'] . '/' . $name;
+    $temp = $path . '.part';
+
+    // Write to a temporary name first, so an interrupted run never leaves a
+    // half-written file that looks like a usable backup.
+    if (@file_put_contents($temp, $dump['gz'], LOCK_EX) !== strlen($dump['gz']) || !@rename($temp, $path)) {
+        @unlink($temp);
+        $result['note'] = 'Could not write ' . $name . ' to the backup folder.';
+        backup_record($result);
+
+        return $result;
     }
 
-    // Photos of the order the queue has committed to (accepted or printing):
-    // the only copies whose loss would stop the business printing, and small
-    // enough to keep inside the vault's storage allowance. Pending orders stay
-    // editable and the customer still holds those originals.
-    if ($includePhotos && relay_ready()
-        && schema_column_ready('order_photos', 'backed_up_at', 'printed_at', 'schema_backed_up_at')) {
-        $queued = db_all(
-            "SELECT p.id
-             FROM order_photos p JOIN orders o ON o.id = p.order_id
-             WHERE o.status IN ('accepted', 'printing')
-               AND p.backed_up_at IS NULL
-             ORDER BY p.id ASC
-             LIMIT " . BACKUP_PHOTOS_PER_RUN
-        );
+    @chmod($path, 0600);
+    backup_prune();
 
-        $bytesSent = 0;
+    $result['ok']    = true;
+    $result['file']  = $name;
+    $result['where'] = $target['dir'];
+    $result['note']  = 'Dump ' . human_size($result['bytes']) . ' (' . $result['rows'] . ' rows) written to ' . $name
+        . ($target['reliable'] ? '.' : ' — inside the web root, protected by .htaccess only.');
 
-        foreach ($queued as $photo) {
-            $bytes = photo_binary(['id' => (int) $photo['id']]);
+    backup_record($result);
 
-            if ($bytes === null || $bytes === '') {
-                db_update('order_photos', ['backed_up_at' => now()], 'id = ?', [(int) $photo['id']]);
-                continue;
-            }
+    return $result;
+}
 
-            if ($bytesSent + strlen($bytes) > BACKUP_PHOTO_BYTES_RUN) {
-                break;
-            }
-
-            $key = 'photo/' . (int) $photo['id'] . '.bin';
-            $put = relay_request('PUT', '/vault/' . $key, $bytes, 120, 'application/octet-stream');
-
-            if (!$put['ok']) {
-                $result['note'] .= ' Photo upload stopped at #' . (int) $photo['id'] . '.';
-                break;
-            }
-
-            db_update('order_photos', ['backed_up_at' => now()], 'id = ?', [(int) $photo['id']]);
-            $result['photos']++;
-            $bytesSent += strlen($bytes);
-        }
-    }
-
-    // Once an order is printed its vaulted photos are not needed again, so they
-    // are removed to keep the vault near the size of the queue rather than
-    // growing for ever.
-    if ($includePhotos && relay_ready()
-        && schema_column_ready('order_photos', 'backed_up_at', 'printed_at', 'schema_backed_up_at')) {
-        $done = db_all(
-            "SELECT p.id
-             FROM order_photos p JOIN orders o ON o.id = p.order_id
-             WHERE o.status IN ('completed', 'cancelled')
-               AND p.backed_up_at IS NOT NULL
-             ORDER BY p.id ASC
-             LIMIT 200"
-        );
-
-        foreach ($done as $photo) {
-            $deleted = relay_request('DELETE', '/vault/photo/' . (int) $photo['id'] . '.bin', null, 20);
-
-            if ($deleted['ok']) {
-                db_update('order_photos', ['backed_up_at' => null], 'id = ?', [(int) $photo['id']]);
-            }
-        }
-    }
-
-    $result['ok'] = $uploaded;
-
-    if ($result['ok']) {
-        $result['note'] = trim($result['note']) !== ''
-            ? trim($result['note'])
-            : 'Dump ' . human_size($result['bytes']) . ' (' . $result['rows'] . ' rows) to the ' . $result['where'] . '.';
-    } elseif ($result['note'] === '') {
-        $result['note'] = 'The backup did not leave the host.';
-    }
-
+/**
+ * Store the last result for the settings page.
+ *
+ * @param array{ok:bool,note:string,bytes:int,rows:int,where:string,file:string} $result
+ */
+function backup_record(array $result): void
+{
     set_setting('backup_last_run', now());
     set_setting('backup_last_status', $result['ok'] ? 'ok' : 'error');
     set_setting('backup_last_note', mb_substr($result['note'], 0, 500));
     set_setting('backup_last_bytes', (string) $result['bytes']);
     set_setting('backup_last_rows', (string) $result['rows']);
-    set_setting('backup_last_photos', (string) $result['photos']);
     set_setting('backup_last_where', $result['where']);
-
-    return $result;
+    set_setting('backup_last_file', $result['file']);
 }

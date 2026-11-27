@@ -8,7 +8,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/backup.php';
 
-$admin = require_admin();
+require_admin();
 $epson = EpsonClient::fromSettings();
 
 $defaultRedirect = absolute_url('admin/epson-callback.php');
@@ -32,94 +32,6 @@ if (is_post()) {
         set_setting('default_print_quality', array_key_exists($quality, quality_options()) ? $quality : 'normal');
 
         flash('success', 'Service settings saved.');
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'monitor') {
-        $url = trim((string) ($_POST['monitor_ping_url'] ?? ''));
-
-        if ($url !== '' && !preg_match('#^https://#i', $url)) {
-            flash('error', 'The heartbeat URL must start with https://.');
-            redirect('admin/settings.php');
-        }
-
-        set_setting('monitor_ping_url', mb_substr($url, 0, 500));
-        set_setting('customer_emails_enabled', isset($_POST['customer_emails_enabled']) ? '1' : '0');
-        flash('success', 'Heartbeat and customer email settings saved.');
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'monitor_test') {
-        $ping = monitor_ping('ok', ['test' => true, 'source' => 'admin']);
-
-        if ($ping === null) {
-            flash('error', 'Add a heartbeat URL first.');
-        } elseif ($ping['ok']) {
-            flash('success', 'Heartbeat accepted the test ping (HTTP ' . $ping['code'] . ').');
-        } else {
-            flash('error', 'Heartbeat ping failed: ' . ($ping['error'] !== '' ? $ping['error'] : 'HTTP ' . $ping['code']));
-        }
-
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'relay') {
-        $url = trim((string) ($_POST['relay_url'] ?? ''));
-
-        if ($url !== '' && !preg_match('#^https://#i', $url)) {
-            flash('error', 'The relay URL must start with https://.');
-            redirect('admin/settings.php');
-        }
-
-        set_setting('relay_url', mb_substr(rtrim($url, '/'), 0, 500));
-        flash('success', 'Relay URL saved.');
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'relay_test') {
-        if (!relay_configured()) {
-            flash('error', 'Save the relay URL and token first.');
-            redirect('admin/settings.php');
-        }
-
-        $health = relay_request('GET', '/health', null, 15);
-
-        if ($health['ok']) {
-            $hooks = relay_request('GET', '/hooks?limit=1', null, 15);
-            set_setting('relay_pull_enabled', $hooks['ok'] ? '1' : '');
-            flash($hooks['ok'] ? 'success' : 'error', $hooks['ok']
-                ? 'Relay answered and the inbox is readable. Backups and callback collection are enabled.'
-                : 'Relay health is fine but the inbox answered HTTP ' . $hooks['code'] . ' — set RELAY_TOKEN on the relay to the callback token below.');
-        } else {
-            flash('error', 'Relay did not answer: ' . ($health['error'] !== '' ? $health['error'] : 'HTTP ' . $health['code']));
-        }
-
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'relay_register') {
-        if (!relay_configured()) {
-            flash('error', 'Save the relay URL and token first.');
-            redirect('admin/settings.php');
-        }
-
-        if (!$epson->isConnected()) {
-            flash('error', 'Link the printer first.');
-            redirect('admin/settings.php');
-        }
-
-        $epson->bypassCircuit = true;
-
-        try {
-            $epson->setNotification(true, relay_base_url() . '/hook?token=' . rawurlencode(relay_token()));
-            set_setting('epson_notifications_enabled', '1');
-            set_setting('relay_pull_enabled', '1');
-            set_setting('epson_notify_registered_at', now());
-            flash('success', 'Epson will now post job updates to the relay, and the print worker collects them each run.');
-        } catch (EpsonException $e) {
-            flash('error', 'Epson did not accept the relay callback: ' . $e->getMessage());
-        }
-
         redirect('admin/settings.php');
     }
 
@@ -188,66 +100,18 @@ if (is_post()) {
 
     if ($action === 'disconnect') {
         $epson->disconnect();
-        set_setting('epson_notifications_enabled', '');
         flash('success', 'Printer unlinked. Credentials were kept so you can reconnect quickly.');
         redirect('admin/settings.php');
     }
 
-    if ($action === 'notify_off') {
-        // Local switch only: the queue returns to normal polling even when the
-        // relay or Epson cannot be reached to change anything.
-        // The relay stays wired up (backups and event collection keep working);
-        // only the polling shortcut is switched off.
-        set_setting('epson_notifications_enabled', '');
-        flash('success', 'Job notifications are off. The queue is back to polling Epson for job status.');
-        redirect('admin/settings.php');
-    }
 
-    if ($action === 'account') {
-        $name  = input('name');
-        $email = mb_strtolower(input('email'));
-        $current = (string) ($_POST['current_password'] ?? '');
-        $new     = (string) ($_POST['new_password'] ?? '');
-
-        $errors = [];
-        if (mb_strlen($name) < 2) {
-            $errors[] = 'Enter your name.';
-        }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'Enter a valid email address.';
-        } elseif ((int) db_val('SELECT COUNT(*) FROM users WHERE email = ? AND id <> ?', [$email, $admin['id']]) > 0) {
-            $errors[] = 'That email is used by another account.';
-        }
-
-        if ($new !== '') {
-            if (!password_verify($current, (string) $admin['password_hash'])) {
-                $errors[] = 'Your current password is not correct.';
-            } elseif (strlen($new) < 6) {
-                $errors[] = 'Use at least 6 characters for the new password.';
-            }
-        }
-
-        if ($errors !== []) {
-            flash('error', implode(' ', $errors));
-        } else {
-            $data = ['name' => $name, 'email' => $email];
-            if ($new !== '') {
-                $data['password_hash'] = password_hash($new, PASSWORD_DEFAULT);
-            }
-            db_update('users', $data, 'id = ?', [$admin['id']]);
-            current_user(true);
-            flash('success', 'Your admin account has been updated.');
-        }
-
-        redirect('admin/settings.php');
-    }
 }
 
 $epsonFresh = EpsonClient::fromSettings();
 $deviceName = $epsonFresh->deviceName();
 $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
 
-app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-2926 link and your admin account.');
+app_start('admin', 'settings', 'Settings', 'Service preferences and the Epson ET-2926 link.');
 ?>
 
 <div class="settings-layout">
@@ -313,133 +177,6 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
 
                     <button class="btn btn-primary mt-3" type="submit">Save service settings</button>
                 </form>
-            </div>
-        </section>
-
-        <section class="panel">
-            <div class="panel-head">
-                <div>
-                    <h3>Heartbeat, backup relaying and customer email</h3>
-                    <p>What watches the queue from outside the host, where backups go, and what customers are told</p>
-                </div>
-            </div>
-            <div class="panel-body">
-                <div class="settings-section" style="margin-top:0;padding-top:0;border-top:0">
-                    <h3>Heartbeat</h3>
-                    <p>Ping an outside monitor after every worker run. If the host or the cron entry dies, no ping arrives and the monitor alarms — the host's own watchdog cannot do that.</p>
-
-                    <form method="post">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="monitor">
-
-                        <div class="field">
-                            <label for="monitor_ping_url">Heartbeat ping URL</label>
-                            <input class="input" type="url" id="monitor_ping_url" name="monitor_ping_url"
-                                   value="<?= e(setting('monitor_ping_url', '')) ?>" maxlength="500"
-                                   placeholder="https://ping.example.com/…">
-                            <p class="help">Any dead-man's-switch service that alarms when a ping is missing. Failures append <span class="mono">/fail</span>.</p>
-                        </div>
-
-                        <label class="choice" style="max-width:640px">
-                            <input type="checkbox" name="customer_emails_enabled" value="1" <?= setting('customer_emails_enabled', '1') === '1' ? 'checked' : '' ?>>
-                            <span class="choice-dot"></span>
-                            <span class="choice-text">
-                                <strong>Email customers when their photos are ready</strong>
-                                <span>One message per order, when every photo has printed.</span>
-                            </span>
-                        </label>
-
-                        <div class="table-actions" style="justify-content:flex-start;margin-top:14px">
-                            <button class="btn btn-primary btn-sm" type="submit"><?= icon('check') ?> Save</button>
-                        </div>
-                    </form>
-
-                    <form method="post" style="margin-top:10px">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="monitor_test">
-                        <button class="btn btn-ghost btn-sm" type="submit"><?= icon('bolt') ?> Send a test ping</button>
-                    </form>
-
-                    <?php $lastPing = monitor_last_ping(); ?>
-                    <?php if ($lastPing !== []): ?>
-                        <p class="help" style="margin-top:10px">
-                            Last ping <?= e(time_ago((string) ($lastPing['at'] ?? ''))) ?>:
-                            <?= !empty($lastPing['ok']) ? 'accepted (HTTP ' . (int) ($lastPing['code'] ?? 0) . ')' : 'failed' ?>
-                            <?php if (!empty($lastPing['error'])): ?>· <?= e((string) $lastPing['error']) ?><?php endif; ?>
-                        </p>
-                    <?php endif; ?>
-                </div>
-
-                <div class="settings-section">
-                    <h3>Relay (callback inbox and off-host vault)</h3>
-                    <p>A Cloudflare Worker that receives Epson's callbacks (the host's bot protection blocks them before PHP) and stores backups. Deployed from <span class="mono">relay/</span> in the repository.</p>
-
-                    <form method="post">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="relay">
-
-                        <div class="field">
-                            <label for="relay_url">Relay URL</label>
-                            <input class="input" type="url" id="relay_url" name="relay_url"
-                                   value="<?= e(relay_base_url()) ?>" maxlength="500" placeholder="https://snapprints-relay.…workers.dev">
-                        </div>
-
-                        <p class="help">Set the relay's <span class="mono">RELAY_TOKEN</span> secret to the callback token below, then press <strong>Test relay</strong>. Treat the token like a password.</p>
-
-                        <div class="field">
-                            <label>Callback token</label>
-                            <div class="code-box">
-                                <span><?= e(epson_notify_secret()) ?></span>
-                                <button class="copy-btn" type="button" data-copy="<?= e(epson_notify_secret()) ?>">Copy</button>
-                            </div>
-                        </div>
-
-                        <div class="table-actions" style="justify-content:flex-start">
-                            <button class="btn btn-primary btn-sm" type="submit"><?= icon('check') ?> Save relay</button>
-                        </div>
-                    </form>
-
-                    <div class="table-actions" style="justify-content:flex-start;flex-wrap:wrap;margin-top:10px">
-                        <form method="post">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="action" value="relay_test">
-                            <button class="btn btn-ghost btn-sm" type="submit"><?= icon('wifi') ?> Test relay</button>
-                        </form>
-                        <form method="post" data-confirm="Point Epson's job notifications at the relay? The print worker collects them on every run.">
-
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="action" value="relay_register">
-                            <button class="btn btn-soft btn-sm" type="submit"><?= icon('bolt') ?> Point Epson at the relay</button>
-                        </form>
-                    </div>
-
-                    <?php if (relay_configured()): ?>
-                        <p class="help" style="margin-top:10px">Callback URL: <span class="mono"><?= e(relay_base_url()) ?>/hook?token=…</span></p>
-                    <?php endif; ?>
-                </div>
-
-                <div class="settings-section">
-                    <h3>Backups</h3>
-                    <p>The database (schema and rows, photos excluded) leaves the host every night, and photos of orders that are still waiting to print are copied to the vault. Run from <span class="mono">cron/backup.php</span>.</p>
-
-                    <div class="summary-list" style="margin:0 0 14px">
-                        <div class="summary-row"><span>Last backup</span><strong><?= setting('backup_last_run', '') !== '' ? e(time_ago((string) setting('backup_last_run'))) : 'Never' ?></strong></div>
-                        <div class="summary-row"><span>Result</span><strong><?= e(setting('backup_last_status', 'unknown') === 'ok' ? 'Stored' : ucfirst((string) setting('backup_last_status', 'unknown'))) ?></strong></div>
-                        <div class="summary-row"><span>Destination</span><strong><?= e(setting('backup_last_where', 'none')) ?></strong></div>
-                        <div class="summary-row"><span>Size</span><strong><?= e(human_size((int) setting('backup_last_bytes', '0'))) ?> · <?= (int) setting('backup_last_rows', '0') ?> rows</strong></div>
-                        <div class="summary-row"><span>Photos vaulted</span><strong><?= (int) setting('backup_last_photos', '0') ?></strong></div>
-                    </div>
-
-                    <?php if (setting('backup_last_note', '') !== ''): ?>
-                        <p class="help"><?= e((string) setting('backup_last_note', '')) ?></p>
-                    <?php endif; ?>
-
-                    <form method="post">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="backup_run">
-                        <button class="btn btn-soft btn-sm" type="submit"><?= icon('download') ?> Run a backup now</button>
-                    </form>
-                </div>
             </div>
         </section>
 
@@ -551,55 +288,6 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
                 </div>
 
                 <div class="settings-section">
-                    <h3>Print-job notifications</h3>
-                    <p>
-                        Epson can push job updates instead of the queue asking every few seconds. The host's bot
-                        protection answers Epson's callbacks before PHP runs, so the relay receives them and the
-                        worker collects them on each run. With notifications on, the worker only checks every
-                        <?= (int) PRINT_POLL_SAFETY_SECONDS ?> s as a safety net.
-                    </p>
-
-                    <div class="summary-list" style="margin:0 0 14px">
-                        <div class="summary-row"><span>Status</span><strong><?= epson_notifications_enabled() ? 'On (via relay)' : 'Off — polling Epson' ?></strong></div>
-                        <?php if (setting('epson_notify_registered_at', '') !== ''): ?>
-                            <div class="summary-row"><span>Registered</span><strong><?= e(time_ago((string) setting('epson_notify_registered_at', ''))) ?></strong></div>
-                        <?php endif; ?>
-                        <?php if (setting('epson_notify_last_at', '') !== ''): ?>
-                            <div class="summary-row"><span>Last notification</span><strong><?= e(time_ago((string) setting('epson_notify_last_at', ''))) ?></strong></div>
-                        <?php endif; ?>
-                    </div>
-
-                    <?php $notifyLog = epson_notification_log(4); ?>
-                    <?php if ($notifyLog !== []): ?>
-                        <div class="table-wrap" style="margin-bottom:14px">
-                            <table class="table">
-                                <thead><tr><th>Time</th><th>Job status</th><th>Photo</th></tr></thead>
-                                <tbody>
-                                    <?php foreach ($notifyLog as $entry): ?>
-                                        <?php $entryAt = strtotime((string) $entry['at']) ?: time(); ?>
-                                        <tr>
-                                            <td class="muted"><?= e(date('H:i:s', $entryAt)) ?></td>
-                                            <td><?= e((string) $entry['status']) ?></td>
-                                            <td><?= !empty($entry['matched']) ? '#' . (int) $entry['photo_id'] . ' → ' . e((string) $entry['result']) : 'no match' ?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
-
-                    <?php if (epson_notifications_enabled()): ?>
-                        <form method="post">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="action" value="notify_off">
-                            <button class="btn btn-ghost btn-sm" type="submit"><?= icon('close') ?> Stop using notifications</button>
-                        </form>
-                    <?php else: ?>
-                        <p class="help" style="margin:0">Set up the relay above, then press <strong>Point Epson at the relay</strong> to switch notifications on.</p>
-                    <?php endif; ?>
-                </div>
-
-                <div class="settings-section">
                     <h3>How the print flow works</h3>
                     <ol class="settings-steps">
                         <li>Register the printer with Epson Connect and create an app to get a Client ID, Client Secret and API Key.</li>
@@ -613,37 +301,41 @@ app_start('admin', 'settings', 'Settings', 'Service preferences, the Epson ET-29
     </div>
 
     <div class="stack">
+        <?php
+        $backupFolder = backup_directory();
+        $backupFiles  = backup_files();
+        ?>
         <section class="panel">
-            <div class="panel-head"><h3>Your admin account</h3></div>
+            <div class="panel-head">
+                <div>
+                    <h3>Backups</h3>
+                    <p>A nightly database dump kept on the host, outside the web root</p>
+                </div>
+            </div>
             <div class="panel-body">
+                <div class="summary-list" style="margin:0 0 14px">
+                    <div class="summary-row"><span>Last backup</span><strong><?= setting('backup_last_run', '') !== '' ? e(time_ago((string) setting('backup_last_run'))) : 'Never' ?></strong></div>
+                    <div class="summary-row"><span>Result</span><strong><?= e(setting('backup_last_status', 'unknown') === 'ok' ? 'Stored' : ucfirst((string) setting('backup_last_status', 'unknown'))) ?></strong></div>
+                    <div class="summary-row"><span>File</span><strong class="mono"><?= e(setting('backup_last_file', '') !== '' ? (string) setting('backup_last_file', '') : '—') ?></strong></div>
+                    <div class="summary-row"><span>Size</span><strong><?= e(human_size((int) setting('backup_last_bytes', '0'))) ?> · <?= (int) setting('backup_last_rows', '0') ?> rows</strong></div>
+                    <div class="summary-row"><span>Folder</span><strong class="mono" style="text-align:right;word-break:break-all"><?= e($backupFolder['dir'] !== '' ? $backupFolder['dir'] : 'Not writable') ?></strong></div>
+                    <div class="summary-row"><span>Dumps kept</span><strong><?= count($backupFiles) ?> · newest <?= (int) BACKUP_KEEP_FILES ?></strong></div>
+                </div>
+
+                <?php if (setting('backup_last_note', '') !== ''): ?>
+                    <p class="help"><?= e((string) setting('backup_last_note', '')) ?></p>
+                <?php endif; ?>
+
                 <form method="post">
                     <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="account">
-
-                    <div class="field">
-                        <label for="name">Name</label>
-                        <input class="input" type="text" id="name" name="name" value="<?= e($admin['name']) ?>" required>
-                    </div>
-                    <div class="field">
-                        <label for="email">Email</label>
-                        <input class="input" type="email" id="email" name="email" value="<?= e($admin['email']) ?>" required>
-                    </div>
-
-                    <div class="settings-section" style="margin-top:0;padding-top:18px">
-                        <h3>Change password</h3>
-                        <p>Leave both fields blank to keep your current password.</p>
-                        <div class="field">
-                            <label for="current_password">Current password</label>
-                            <input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password">
-                        </div>
-                        <div class="field">
-                            <label for="new_password">New password</label>
-                            <input class="input" type="password" id="new_password" name="new_password" autocomplete="new-password">
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary btn-block" type="submit">Save account</button>
+                    <input type="hidden" name="action" value="backup_run">
+                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('download') ?> Run a backup now</button>
                 </form>
+
+                <p class="help" style="margin-top:12px">
+                    Run <span class="mono">cron/backup.php</span> once a night from cPanel. Dumps are gzipped SQL without the photo BLOBs;
+                    restore with <span class="mono">gunzip</span> then <span class="mono">mysql db &lt; db-….sql</span>.
+                </p>
             </div>
         </section>
 

@@ -57,24 +57,6 @@ try {
         print_worker_alive();
     };
 
-    // Notifications Epson posted while the host was unreachable are waiting in
-    // the relay: collect them before looking at the printer.
-    if (relay_ready()) {
-        try {
-            $relayPull = relay_pull_notifications();
-
-            if ($relayPull['pulled'] > 0) {
-                $messages[] = $relayPull['pulled'] . ' relay notification'
-                    . ($relayPull['pulled'] === 1 ? '' : 's') . ' collected'
-                    . ($relayPull['applied'] > 0 ? ', ' . $relayPull['applied'] . ' applied.' : '.');
-            } elseif ($relayPull['error'] !== '') {
-                $messages[] = 'Relay check: ' . $relayPull['error'];
-            }
-        } catch (Throwable $e) {
-            $messages[] = 'Relay check failed: ' . $e->getMessage();
-        }
-    }
-
     $queuedOrders = (int) db_val(
         "SELECT COUNT(*) FROM orders o
          WHERE o.status = 'accepted'
@@ -145,11 +127,8 @@ try {
             return null;
         };
 
-        // A notification can finish the sheet while the worker is waiting for
-        // its next status check, so wait in short slices and wake as soon as
-        // a relay event records it: no idle printer, no extra Epson requests.
+        // Wait in short slices so the run keeps proving it is alive.
         $waitFor = static function (float $seconds): void {
-            $kick      = epson_job_kick();
             $remaining = $seconds;
 
             while ($remaining > 0) {
@@ -157,10 +136,6 @@ try {
                 usleep((int) round($slice * 1000000));
                 $remaining -= $slice;
                 print_worker_alive();
-
-                if ($kick !== 0 && epson_job_kick() !== $kick) {
-                    return;
-                }
             }
         };
 
@@ -334,11 +309,7 @@ try {
                     ? strtotime((string) $printing['print_started_at'])
                     : false;
 
-                if (epson_notifications_enabled()) {
-                    // Epson pushes each completion through the relay, so this check
-                    // is only a safety net for a missed notification.
-                    $pollSeconds = PRINT_POLL_SAFETY_SECONDS;
-                } elseif ($startedAt !== false) {
+                if ($startedAt !== false) {
                     $elapsed = time() - $startedAt;
 
                     if ($elapsed >= PRINT_POLL_TAIL_START_SECONDS && $elapsed <= PRINT_POLL_TAIL_END_SECONDS) {
@@ -636,21 +607,6 @@ try {
     }
 } catch (Throwable $e) {
     $errors[] = 'Epson outage alert failed: ' . $e->getMessage();
-}
-
-// The host cannot alert anyone when the host itself stops, so every run is
-// reported to the outside monitor: no ping for a while and it alarms.
-try {
-    $ping = monitor_ping(
-        $exitCode === 0 && $errors === [] ? 'ok' : 'error',
-        ['queued' => (int) ($queuedOrders ?? 0), 'sent' => (int) ($sentTotal ?? 0), 'errors' => count($errors)]
-    );
-
-    if ($ping !== null && !$ping['ok']) {
-        $messages[] = 'Heartbeat ping failed (HTTP ' . $ping['code'] . ').';
-    }
-} catch (Throwable $e) {
-    $errors[] = 'Heartbeat ping failed: ' . $e->getMessage();
 }
 
 if ($messages !== []) {

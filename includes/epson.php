@@ -310,40 +310,6 @@ final class EpsonClient
      *
      * @return array{status:string,detail:string}
      */
-    /**
-     * Register (or clear) the print-job notification callback.
-     *
-     * Epson then posts job status changes to the callback instead of the app
-     * polling for them.
-     */
-    public function setNotification(bool $enabled, string $callbackUri = ''): array
-    {
-        $body = ['notification' => $enabled];
-
-        if ($enabled) {
-            $body['callbackUri'] = $callbackUri;
-        }
-
-        try {
-            return $this->api('POST', '/printing/settings/notification', $body, 30, 1);
-        } catch (EpsonException $e) {
-            // Older body naming, in case this account is still served it.
-            if ($enabled && $e->statusCode === 400 && $callbackUri !== '') {
-                return $this->api('POST', '/printing/settings/notification', [
-                    'notification' => true,
-                    'callback_uri' => $callbackUri,
-                ], 30, 1);
-            }
-
-            throw $e;
-        }
-    }
-
-    public function notificationSettings(): array
-    {
-        return $this->api('GET', '/printing/settings/notification', null, 30, 1);
-    }
-
     public function interpretJobStatus(array $payload): array
     {
         $status = '';
