@@ -84,6 +84,23 @@ if ($printingNowOrder !== null) {
     $printingHint = 'Queue record · paused — the queue is holding';
 }
 
+// Epson's last cached reading, taken from the settings cache only: a dashboard
+// load never calls Epson. The age is shown so a queue/Epson mismatch is obvious.
+$printerReading = printer_live_status($epson, false);
+$epsonHint      = 'Epson: ' . (string) ($printerReading['label'] ?? 'not checked yet');
+
+if (!empty($printerReading['never_checked'])) {
+    $epsonHint = 'Epson: not checked yet';
+} elseif (!empty($printerReading['checked_at'])) {
+    $epsonHint .= ' · ' . time_ago((string) $printerReading['checked_at']);
+
+    if (!empty($printerReading['stale'])) {
+        $epsonHint .= ' (last known)';
+    }
+}
+
+$printingHint .= ' — ' . $epsonHint;
+
 $recent = db_all(
     "SELECT o.*, u.name AS customer, {$photoSelect}
      FROM orders o JOIN users u ON u.id = o.user_id
