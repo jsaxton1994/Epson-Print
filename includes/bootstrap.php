@@ -15,11 +15,11 @@ ini_set('log_errors', '1');
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
-require_once __DIR__ . '/ink.php';
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/epson.php';
 require_once __DIR__ . '/layout.php';
 
 settings_prune_removed_features();
+settings_prune_ink_monitor();
 
 start_app_session();

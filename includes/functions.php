@@ -222,6 +222,32 @@ function settings_prune_removed_features(): void
     settings_all(true);
 }
 
+/**
+ * Delete the settings left behind by the retired SNMP ink monitor.
+ *
+ * The bridge, its token and the posted levels are gone; on an existing install
+ * their rows would otherwise sit in the settings table for ever.
+ */
+function settings_prune_ink_monitor(): void
+{
+    if (setting('settings_pruned_ink', '') === '1') {
+        return;
+    }
+
+    try {
+        foreach (['ink_token_hash', 'ink_token_created_at', 'printer_ink_levels'] as $key) {
+            db_query('DELETE FROM settings WHERE setting_key = ?', [$key]);
+        }
+
+        set_setting('settings_pruned_ink', '1');
+    } catch (Throwable $e) {
+        // A failed prune must never take a page down; it is retried next request.
+        error_log('[PrintFree] Could not prune ink monitor settings: ' . $e->getMessage());
+    }
+
+    settings_all(true);
+}
+
 function site_name(): string
 {
     return setting('site_name', APP_NAME) ?? APP_NAME;

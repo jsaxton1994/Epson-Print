@@ -15,7 +15,6 @@ DirectoryIndex public/index.php
     RewriteEngine On
     RewriteRule ^includes(?:/|$) - [F,L,NC]
     RewriteRule ^cron(?:/|$) - [F,L,NC]
-    RewriteRule ^tools(?:/|$) - [F,L,NC]
 </IfModule>
 
 <IfModule mod_headers.c>

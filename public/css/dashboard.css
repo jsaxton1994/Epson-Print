@@ -253,65 +253,6 @@
 
 .stats-grid.is-stacked .stat-hint { max-width: 82ch; }
 
-/* Ink card: the four EcoTank colours as a row of chips. Epson Connect reports no
-   tank levels, so the chips name the tanks without inventing a percentage. */
-.ink-tanks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 4px 0 8px;
-}
-
-.ink-tank {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px 4px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: #fff;
-    font-size: .74rem;
-    font-weight: 600;
-    color: var(--muted);
-}
-
-/* Four chips do not fit on one phone-width row: pair them up instead of
-   leaving the fourth alone on its own line. */
-@media (max-width: 480px) {
-    .ink-tanks {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        justify-items: start;
-        row-gap: 8px;
-    }
-}
-
-.ink-swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #233043;
-    flex: none;
-}
-
-.ink-swatch.is-cyan { background: #25b7d3; }
-.ink-swatch.is-magenta { background: #e0559a; }
-.ink-swatch.is-yellow { background: #f2bd2f; }
-
-.ink-tank strong {
-    color: var(--ink);
-    font-variant-numeric: tabular-nums;
-}
-
-.ink-tank.is-low {
-    border-color: #f0c68f;
-    background: #fff8ec;
-}
-
-.ink-tank.is-low strong { color: #a35d0a; }
-
-.ink-tank.is-unknown strong { color: var(--muted); font-weight: 600; }
-
 .stat-icon {
     display: inline-flex;
     align-items: center;

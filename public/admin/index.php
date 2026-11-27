@@ -117,32 +117,9 @@ if (!empty($printerReading['never_checked'])) {
 
 $printingHint .= ' — ' . $epsonHint;
 
-// Ink and paper status at a glance. Ink comes from the SNMP bridge reading and
-// paper from the printer's last reported stop; neither costs an Epson call.
+// Paper status at a glance: the printer's last reported stop, read from the
+// settings cache so a dashboard load never calls Epson.
 $supplyHold = printer_supply_block();
-$ink        = printer_ink_reading();
-
-$inkTone  = 'brand';
-$inkValue = 'Levels not reported';
-$inkHint  = 'Epson Connect publishes no tank levels. Connect the SNMP ink bridge in Printer Settings to fill these.';
-
-if ($ink['has_readings']) {
-    $inkValue = 'Lowest: ' . ucfirst((string) $ink['lowest_colour']) . ' ' . $ink['lowest'] . '%';
-    $inkHint  = 'SNMP (printer)'
-        . ($ink['model'] !== '' ? ' · ' . $ink['model'] : '')
-        . ' · read ' . time_ago((string) $ink['received_at'])
-        . ($ink['stale'] ? ' — stale: the bridge has not posted since' : '');
-
-    if ($ink['lowest'] <= PRINTER_INK_LOW_PERCENT) {
-        $inkTone = 'amber';
-    }
-}
-
-if ($supplyHold['active'] && $supplyHold['reason'] === 'marker_supply_empty') {
-    $inkTone  = 'amber';
-    $inkValue = 'Empty — refill';
-    $inkHint  = 'The printer reported empty ink ' . ($supplyHold['since'] !== '' ? time_ago($supplyHold['since']) : 'just now') . '; nothing new is sent until the hold is cleared.';
-}
 
 $paperTone  = 'brand';
 $paperValue = 'Ready';
@@ -397,22 +374,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
 </p>
 
 <div class="stats-grid is-stacked">
-    <div class="stat-card tone-<?= e($inkTone) ?>">
-        <div class="stat-icon"><?= icon('droplet') ?></div>
-        <div class="stat-body">
-            <span class="stat-label">Ink</span>
-            <strong class="stat-value"><?= e($inkValue) ?></strong>
-            <div class="ink-tanks" role="group" aria-label="Ink tanks">
-                <?php foreach (INK_COLOURS as $colour): ?>
-                    <?php $level = $ink['levels'][$colour] ?? null; ?>
-                    <span class="ink-tank<?= $level === null ? ' is-unknown' : ($level <= PRINTER_INK_LOW_PERCENT ? ' is-low' : '') ?>">
-                        <span class="ink-swatch is-<?= e($colour) ?>"></span><?= e(ucfirst($colour)) ?><strong><?= $level === null ? '—' : e($level . '%') ?></strong>
-                    </span>
-                <?php endforeach; ?>
-            </div>
-            <span class="stat-hint"><?= e($inkHint) ?></span>
-        </div>
-    </div>
     <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
     <?php stat_card('Printer (Epson)', (string) $printerReading['label'], 'printer', 'brand', (string) $printerReading['detail']); ?>
 </div>
