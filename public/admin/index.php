@@ -68,6 +68,32 @@ $queue = db_all(
      LIMIT 6"
 );
 
+// The photo the worker has on the printer: its order, position and how much of
+// that order is already done, so the dashboard can name the active order.
+$hasPrintStarted = print_started_column_ready();
+$printingNowOrder = db_one(
+    "SELECT o.id, o.reference, u.name AS customer, o.paper_size, p.position, p.id AS photo_id,"
+    . ($hasPrintStarted ? ' p.print_started_at,' : ' NULL AS print_started_at,')
+    . " (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id) AS photo_total,
+            (SELECT COUNT(*) FROM order_photos x WHERE x.order_id = o.id AND x.printed_at IS NOT NULL) AS photo_done
+     FROM order_photos p
+     JOIN orders o ON o.id = p.order_id
+     JOIN users u ON u.id = o.user_id
+     WHERE p.status = 'printing'
+     ORDER BY " . ($hasPrintStarted ? 'p.print_started_at DESC, ' : '') . "p.id DESC
+     LIMIT 1"
+);
+
+$printingHint = 'Nothing on the printer';
+
+if ($printingNowOrder !== null) {
+    $printingHint = (string) $printingNowOrder['reference']
+        . ' · photo ' . max(1, (int) $printingNowOrder['position'])
+        . ' of ' . max(1, (int) $printingNowOrder['photo_total']);
+} elseif ($queueHealth['paused']) {
+    $printingHint = 'Paused — the queue is holding';
+}
+
 $recent = db_all(
     "SELECT o.*, u.name AS customer, {$photoSelect}
      FROM orders o JOIN users u ON u.id = o.user_id
@@ -276,7 +302,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
 <div class="stats-grid" style="margin-top:20px">
     <?php
     stat_card('Waiting in queue', (string) $counts['accepted'], 'clock', 'amber', $counts['pending'] > 0 ? $counts['pending'] . ' awaiting acceptance' : 'No new orders');
-    stat_card('Printing now', (string) $counts['printing'], 'printer', 'violet');
+    stat_card('Printing now', (string) $counts['printing'], 'printer', 'violet', $printingHint);
     stat_card('Photos printed today', (string) $photosToday, 'check', 'accent', $printedToday . ' ' . ($printedToday === 1 ? 'order' : 'orders'));
     stat_card('Customers', (string) $customerCount, 'users', 'brand');
     ?>
