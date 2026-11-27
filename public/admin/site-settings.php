@@ -28,8 +28,16 @@ if (is_post()) {
     if (input('action') === 'print') {
         $paper   = input('default_paper_size');
         $quality = input('default_print_quality');
+        $posted  = array_map('strval', (array) ($_POST['paper_sizes'] ?? []));
+        $enabled = array_values(array_intersect(array_keys(paper_size_options()), $posted));
 
-        set_setting('default_paper_size', array_key_exists($paper, paper_size_options()) ? $paper : 'A4');
+        if ($enabled === []) {
+            flash('error', 'Keep at least one paper size enabled, otherwise customers cannot order a print.');
+            redirect('admin/site-settings.php');
+        }
+
+        set_setting('paper_sizes_enabled', implode(',', $enabled));
+        set_setting('default_paper_size', in_array($paper, $enabled, true) ? $paper : $enabled[0]);
         set_setting('default_print_quality', array_key_exists($quality, quality_options()) ? $quality : 'normal');
         set_setting('accepting_orders', isset($_POST['accepting_orders']) ? '1' : '0');
 
@@ -111,8 +119,9 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
                         <div class="field">
                             <label for="default_paper_size">Default paper</label>
                             <select class="select" id="default_paper_size" name="default_paper_size">
-                                <?php foreach (paper_size_options() as $value => $label): ?>
-                                    <option value="<?= e($value) ?>" <?= setting('default_paper_size', 'A4') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                                <?php $defaultPaper = setting('default_paper_size', '4x6'); ?>
+                                <?php foreach (enabled_paper_sizes() as $value): ?>
+                                    <option value="<?= e($value) ?>" <?= $defaultPaper === $value ? 'selected' : '' ?>><?= e(paper_size_options()[$value]) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -124,6 +133,20 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                    </div>
+
+                    <div class="field">
+                        <span class="field-label">Allowed paper sizes</span>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px 16px">
+                            <?php foreach (paper_size_options() as $value => $label): ?>
+                                <label class="choice" style="width:auto;max-width:none;padding:10px 14px">
+                                    <input type="checkbox" name="paper_sizes[]" value="<?= e($value) ?>" <?= in_array($value, enabled_paper_sizes(), true) ? 'checked' : '' ?>>
+                                    <span class="choice-dot"></span>
+                                    <span class="choice-text"><strong><?= e(paper_size_label($value)) ?></strong></span>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                        <p class="help">Customers can only pick the ticked sizes, and the default paper must be one of them. Keep at least one ticked.</p>
                     </div>
 
                     <label class="choice" style="max-width:560px">

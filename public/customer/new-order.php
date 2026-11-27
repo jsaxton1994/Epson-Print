@@ -13,7 +13,7 @@ if ($user['role'] === 'admin') {
 }
 
 $accepting = setting('accepting_orders', '1') === '1';
-$papers    = paper_size_options();
+$papers    = array_intersect_key(paper_size_options(), array_flip(enabled_paper_sizes()));
 $qualities = quality_options();
 
 $limits     = upload_limits();
@@ -27,7 +27,7 @@ $borderless = 1;
 $notes      = '';
 
 if (!array_key_exists($paper, $papers)) {
-    $paper = '4x6';
+    $paper = (string) array_key_first($papers);
 }
 if (!array_key_exists($quality, $qualities)) {
     $quality = 'high';
@@ -47,7 +47,7 @@ if (is_post()) {
 
     verify_csrf();
 
-    $paper      = in_array(input('paper_size'), array_keys($papers), true) ? input('paper_size') : '4x6';
+    $paper      = in_array(input('paper_size'), array_keys($papers), true) ? input('paper_size') : (string) array_key_first($papers);
     $quality    = in_array(input('print_quality'), array_keys($qualities), true) ? input('print_quality') : 'high';
     $color      = input('color_mode') === 'mono' ? 'mono' : 'color';
     $borderless = input('borderless') === '0' ? 0 : 1;

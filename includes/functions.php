@@ -1448,6 +1448,37 @@ function paper_size_label(string $key): string
     return explode(' — ', $label)[0];
 }
 
+/**
+ * Paper sizes customers may order, as enabled in Site Settings → Print Settings.
+ *
+ * Stored as a comma-separated list of option keys. A missing or unusable value
+ * falls back to every size, so the site never ends up with nothing to order.
+ *
+ * @return list<string>
+ */
+function enabled_paper_sizes(): array
+{
+    static $sizes = null;
+
+    if ($sizes !== null) {
+        return $sizes;
+    }
+
+    $all    = array_keys(paper_size_options());
+    $stored = trim((string) setting('paper_sizes_enabled', ''));
+
+    if ($stored === '') {
+        return $sizes = $all;
+    }
+
+    $chosen = array_values(array_intersect(
+        $all,
+        array_filter(array_map('trim', explode(',', $stored)))
+    ));
+
+    return $sizes = $chosen !== [] ? $chosen : $all;
+}
+
 function quality_options(): array
 {
     return [

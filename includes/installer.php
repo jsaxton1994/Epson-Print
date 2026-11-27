@@ -128,6 +128,7 @@ function seed_demo_data(PDO $pdo): void
         'queue_alert_email'     => '',
         'accepting_orders'      => '1',
         'default_paper_size'    => '4x6',
+        'paper_sizes_enabled'   => '4x6,5x7,A4',
         'default_print_quality' => 'high',
         'order_details_sheet_enabled' => '1',
         'epson_client_id'       => '',
