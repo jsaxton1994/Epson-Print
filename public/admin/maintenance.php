@@ -71,6 +71,7 @@ $status = printer_live_status($epson, false);
 
 $epsonStats    = epson_request_stats();
 $circuitLeft   = epson_circuit_seconds();
+$epsonOutage   = epson_outage_state();
 $recentRequests = epson_recent_requests(8);
 $successRate   = (int) $epsonStats['total'] > 0
     ? (int) round((1 - ((int) $epsonStats['failed'] / (int) $epsonStats['total'])) * 100)
@@ -217,6 +218,12 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                     <div class="summary-row"><span>State</span><strong><?= $circuitLeft > 0 ? 'Failing fast, retry in ' . $circuitLeft . ' s' : 'Calling Epson normally' ?></strong></div>
                     <div class="summary-row"><span>Requests / failures</span><strong><?= (int) $epsonStats['total'] ?> / <?= (int) $epsonStats['failed'] ?><?= $successRate !== null ? ' · ' . $successRate . '% ok' : '' ?></strong></div>
                     <div class="summary-row"><span>Consecutive failures</span><strong><?= (int) $epsonStats['consecutive'] ?></strong></div>
+                    <div class="summary-row"><span>Outage</span><strong><?= $epsonOutage['active']
+                        ? e(epson_outage_summary($epsonOutage))
+                        : ($epsonOutage['recovered_at'] !== ''
+                            ? 'Recovered ' . e(time_ago((string) $epsonOutage['recovered_at']))
+                                . ($epsonOutage['last_duration'] !== null ? ' after ' . max(1, (int) floor($epsonOutage['last_duration'] / 60)) . ' min' : '')
+                            : 'None logged') ?></strong></div>
                     <div class="summary-row"><span>Last success</span><strong><?= $epsonStats['last_ok_at'] !== '' ? e(time_ago((string) $epsonStats['last_ok_at'])) : 'None yet' ?></strong></div>
                 </div>
 
@@ -241,6 +248,18 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
                             </tbody>
                         </table>
                     </div>
+                <?php endif; ?>
+
+                <?php if ($epsonOutage['active']): ?>
+                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
+                        Send failures are retried inside the same worker run, so printing restarts by itself when the connection returns.
+                        <?php if ($epsonOutage['alerted_at'] !== ''): ?>
+                            Alert emailed <?= e(time_ago((string) $epsonOutage['alerted_at'])) ?> to <?= e(queue_alert_recipient()) ?>;
+                            it repeats every <?= (int) EPSON_OUTAGE_REMINDER_MINUTES ?> minutes and once more when Epson is back.
+                        <?php else: ?>
+                            An alert email goes out after <?= (int) EPSON_OUTAGE_ALERT_MINUTES ?> minutes with orders waiting.
+                        <?php endif; ?>
+                    </p>
                 <?php endif; ?>
 
                 <?php if ($epsonStats['last_error'] !== ''): ?>

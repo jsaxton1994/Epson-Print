@@ -282,6 +282,7 @@ function epson_log_request(array $entry): void
         $stats['consecutive']   = 0;
         $stats['circuit_until'] = 0;
         $stats['last_ok_at']    = (string) $entry['at'];
+        epson_outage_note_success();
     } else {
         $stats['failed']        = (int) $stats['failed'] + 1;
         $stats['consecutive']   = (int) $stats['consecutive'] + 1;
@@ -291,6 +292,11 @@ function epson_log_request(array $entry): void
         if ((int) $stats['consecutive'] >= EPSON_CIRCUIT_THRESHOLD) {
             $stats['circuit_until'] = time() + EPSON_CIRCUIT_SECONDS;
         }
+
+        // A connection that never opened is an outage; an HTTP rejection is not.
+        if ((int) ($entry['errno'] ?? 0) !== 0) {
+            epson_outage_note_failure('cURL ' . (int) $entry['errno'] . ': ' . (string) $entry['error']);
+        }
     }
 
     set_setting('epson_request_stats', json_encode($stats, JSON_UNESCAPED_SLASHES));
@@ -299,6 +305,170 @@ function epson_log_request(array $entry): void
 function epson_circuit_seconds(): int
 {
     return max(0, (int) epson_request_stats()['circuit_until'] - time());
+}
+
+/**
+ * How long Epson has been unreachable, and what has already been said about it.
+ *
+ * @return array{active:bool,since:string,age:?int,attempts:int,last_error:string,alerted_at:string,recovered_at:string,last_duration:?int}
+ */
+function epson_outage_state(): array
+{
+    $since    = (string) setting('epson_outage_since', '');
+    $sinceTs  = $since !== '' ? strtotime($since) : false;
+    $duration = (string) setting('epson_outage_last_duration_seconds', '');
+
+    return [
+        'active'        => $sinceTs !== false,
+        'since'         => $since,
+        'age'           => $sinceTs === false ? null : max(0, time() - $sinceTs),
+        'attempts'      => (int) setting('epson_outage_attempts', '0'),
+        'last_error'    => (string) setting('epson_outage_last_error', ''),
+        'alerted_at'    => (string) setting('epson_outage_alerted_at', ''),
+        'recovered_at'  => (string) setting('epson_outage_recovered_at', ''),
+        'last_duration' => $duration !== '' ? (int) $duration : null,
+    ];
+}
+
+/**
+ * Called for every transport failure, so an outage has a start time and a count
+ * rather than only a growing "consecutive failures" number.
+ */
+function epson_outage_note_failure(string $message): void
+{
+    $state = epson_outage_state();
+
+    if (!$state['active']) {
+        set_setting('epson_outage_since', now());
+        set_setting('epson_outage_attempts', '0');
+    }
+
+    set_setting('epson_outage_attempts', (string) ($state['attempts'] + 1));
+    set_setting('epson_outage_last_error', mb_substr(trim($message), 0, 300));
+}
+
+/**
+ * Called on every successful Epson request. Returns true when this is the first
+ * answer after an outage, so the caller can log the recovery.
+ */
+function epson_outage_note_success(): bool
+{
+    $state = epson_outage_state();
+
+    if (!$state['active']) {
+        return false;
+    }
+
+    set_setting('epson_outage_last_duration_seconds', (string) (int) ($state['age'] ?? 0));
+    set_setting('epson_outage_recovered_at', now());
+    set_setting('epson_outage_since', '');
+    set_setting('epson_outage_attempts', '0');
+    set_setting('epson_outage_last_error', '');
+
+    return true;
+}
+
+/**
+ * One human line about the outage: "unreachable since 01:02 (41 min, 18 attempts)".
+ */
+function epson_outage_summary(array $state = []): string
+{
+    $state = $state !== [] ? $state : epson_outage_state();
+
+    if (!$state['active']) {
+        return 'Epson is answering normally';
+    }
+
+    $minutes = max(1, (int) floor(((int) $state['age']) / 60));
+
+    return 'Epson unreachable since ' . date('H:i', strtotime((string) $state['since']))
+        . ' (' . $minutes . ' min, ' . (int) $state['attempts'] . ' attempt' . ($state['attempts'] === 1 ? '' : 's') . ')';
+}
+
+/**
+ * Email when an outage lasts long enough to matter, remind while it lasts, and
+ * send one note when Epson answers again.
+ *
+ * @return string|null 'alert', 'reminder' or 'recovery' when a mail was sent
+ */
+function epson_outage_alert_if_needed(): ?string
+{
+    $state = epson_outage_state();
+
+    if (!$state['active']) {
+        if ($state['alerted_at'] === '') {
+            return null;
+        }
+
+        $health   = queue_health();
+        $minutes  = max(1, (int) floor(((int) ($state['last_duration'] ?? 0)) / 60));
+        $body = implode(PHP_EOL, [
+            'PrintFree queue alert',
+            '',
+            'Issue: Epson Connect is reachable again',
+            'Time: ' . format_date(now()),
+            'Outage length: ' . $minutes . ' min',
+            'Recovered: ' . format_date((string) $state['recovered_at']),
+            'Accepted orders waiting: ' . $health['queued'],
+            'Printing resumes by itself: the next worker run sends the next photo.',
+        ]);
+
+        $sent = send_queue_alert('Epson Connect is reachable again', $body);
+        set_setting('epson_outage_alerted_at', '');
+
+        return $sent ? 'recovery' : null;
+    }
+
+    $age = (int) ($state['age'] ?? 0);
+
+    if ($age < EPSON_OUTAGE_ALERT_MINUTES * 60) {
+        return null;
+    }
+
+    $health = queue_health();
+
+    // Nothing is waiting (or printing is paused) - no reason to email anyone.
+    if ($health['paused'] || $health['queued'] === 0) {
+        return null;
+    }
+
+    $alertedTs = $state['alerted_at'] !== '' ? strtotime($state['alerted_at']) : false;
+    $reminder  = EPSON_OUTAGE_REMINDER_MINUTES * 60;
+
+    if ($alertedTs !== false && (time() - $alertedTs) < $reminder) {
+        return null;
+    }
+
+    $kind     = $alertedTs === false ? 'alert' : 'reminder';
+    $minutes  = max(1, (int) floor($age / 60));
+    $oldest   = $health['oldest_reference'] !== null ? (string) $health['oldest_reference'] : 'none';
+    $oldestAt = $health['oldest_age'] !== null ? max(1, (int) floor(((int) $health['oldest_age']) / 60)) . ' min waiting' : 'unknown';
+
+    $body = implode(PHP_EOL, [
+        'PrintFree queue alert',
+        '',
+        'Issue: Epson Connect unreachable (' . $minutes . ' min)',
+        'Time: ' . format_date(now()),
+        'Unreachable since: ' . format_date((string) $state['since']),
+        'Failed attempts: ' . (int) $state['attempts'],
+        'Last error: ' . ($state['last_error'] !== '' ? $state['last_error'] : 'unknown'),
+        'Accepted orders waiting: ' . $health['queued'],
+        'Oldest accepted order: ' . $oldest . ' (' . $oldestAt . ')',
+        'Print progress: ' . ($health['progress_age'] !== null
+            ? max(1, (int) floor(((int) $health['progress_age']) / 60)) . ' min since the last photo finished'
+            : 'no photo printed yet'),
+        '',
+        'Nothing is lost: a photo that cannot be sent stays pending and the queue resumes by itself as soon as Epson answers.',
+        'This message repeats every ' . EPSON_OUTAGE_REMINDER_MINUTES . ' minutes while the outage lasts, and one recovery note follows.',
+    ]);
+
+    $sent = send_queue_alert('Epson Connect unreachable - ' . $health['queued'] . ' order' . ($health['queued'] === 1 ? '' : 's') . ' waiting', $body);
+
+    if ($sent) {
+        set_setting('epson_outage_alerted_at', now());
+    }
+
+    return $sent ? $kind : null;
 }
 
 /**

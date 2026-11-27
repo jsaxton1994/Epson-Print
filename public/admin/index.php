@@ -24,6 +24,7 @@ $counts = db_one(
 ) ?? ['pending' => 0, 'accepted' => 0, 'printing' => 0, 'failed' => 0, 'total' => 0];
 
 $queueHealth = queue_health();
+$epsonOutage = epson_outage_state();
 $queueWorkerState = $queueHealth['paused']
     ? 'Paused'
     : ($queueHealth['worker_never_run']
@@ -156,6 +157,26 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <div>
             <strong>The last print-queue run failed</strong>
             <p><?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'Check the print-queue log for details.') ?></p>
+        </div>
+    </div>
+<?php elseif ($epsonOutage['active'] && !$queueHealth['paused']): ?>
+    <?php $outageMinutes = max(1, (int) floor(((int) $epsonOutage['age']) / 60)); ?>
+    <div class="banner banner-warn">
+        <?= icon('wifi') ?>
+        <div>
+            <strong>Epson Connect has been unreachable for <?= $outageMinutes ?> minute<?= $outageMinutes === 1 ? '' : 's' ?></strong>
+            <p>
+                <?= (int) $queueHealth['queued'] ?> order<?= $queueHealth['queued'] === 1 ? '' : 's' ?> waiting since
+                <?= e(date('H:i', strtotime((string) $epsonOutage['since']))) ?>
+                (<?= (int) $epsonOutage['attempts'] ?> failed attempt<?= $epsonOutage['attempts'] === 1 ? '' : 's' ?>).
+                Printing resumes by itself as soon as Epson answers — no photo is lost.
+                <?php if ($epsonOutage['alerted_at'] !== ''): ?>
+                    Alert emailed <?= e(time_ago((string) $epsonOutage['alerted_at'])) ?>.
+                <?php else: ?>
+                    An alert email goes out after <?= (int) EPSON_OUTAGE_ALERT_MINUTES ?> minutes.
+                <?php endif; ?>
+                <a href="<?= e(url('admin/maintenance.php')) ?>">Epson connection details</a>.
+            </p>
         </div>
     </div>
 <?php elseif ($queueHealth['last_status'] === 'warning'): ?>

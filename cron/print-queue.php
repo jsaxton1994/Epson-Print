@@ -132,6 +132,28 @@ try {
             }
         };
 
+        // A connection that never opened is retried inside this same run, so
+        // printing restarts the moment Epson answers instead of waiting for the
+        // next cron tick. Only transport failures are retried; a rejected
+        // request is a real error and is reported as one.
+        $retryTransport = static function (callable $attempt, string $reference) use (&$messages, $sendDeadline): array {
+            $result = $attempt();
+            $tries  = 0;
+
+            while (!empty($result['transient'])
+                && empty($result['skipped'])
+                && $tries < PRINT_TRANSPORT_RETRIES
+                && microtime(true) < $sendDeadline) {
+                $tries++;
+                $pause = min(20, 5 * $tries);
+                $messages[] = $reference . ': Epson did not answer; retrying in ' . $pause . 's.';
+                sleep($pause);
+                $result = $attempt();
+            }
+
+            return $result;
+        };
+
         // Queue position is the time the order was accepted, not its id, so an
         // order submitted later but accepted first prints first. Orders
         // accepted before the column existed fall back to their submit time.
@@ -223,8 +245,14 @@ try {
                     // The printer is free now: start the photo that was uploaded
                     // while this sheet printed, then upload the next one.
                     if ($prepared !== null && $result['status'] !== 'printing') {
-                        $started = start_prepared_photo($epson, $frontOrder, $prepared['photo'], $prepared['job']);
-                        $prepared = null;
+                        $nextPhoto = $prepared['photo'];
+                        $nextJob   = $prepared['job'];
+                        $prepared  = null;
+
+                        $started = $retryTransport(
+                            static fn (): array => start_prepared_photo($epson, $frontOrder, $nextPhoto, $nextJob),
+                            $frontRef
+                        );
 
                         if ($started['ok']) {
                             $sentTotal++;
@@ -270,8 +298,14 @@ try {
 
             // The printer is free: start the photo uploaded for it, if any.
             if ($prepared !== null) {
-                $started  = start_prepared_photo($epson, $frontOrder, $prepared['photo'], $prepared['job']);
-                $prepared = null;
+                $nextPhoto = $prepared['photo'];
+                $nextJob   = $prepared['job'];
+                $prepared  = null;
+
+                $started = $retryTransport(
+                    static fn (): array => start_prepared_photo($epson, $frontOrder, $nextPhoto, $nextJob),
+                    $frontRef
+                );
 
                 if ($started['ok']) {
                     $sentTotal++;
@@ -310,7 +344,10 @@ try {
                 break;
             }
 
-            $result = send_photo_to_printer($epson, $frontOrder, $pending, ['pending']);
+            $result = $retryTransport(
+                static fn (): array => send_photo_to_printer($epson, $frontOrder, $pending, ['pending']),
+                (string) $frontOrder['reference']
+            );
 
             if (!empty($result['skipped'])) {
                 $skippedTotal++;
@@ -452,6 +489,21 @@ try {
         }
     }
 
+    // Make the outage visible in the worker log, not just in the settings the
+    // dashboard reads.
+    $outage = epson_outage_state();
+
+    if ($outage['active']) {
+        $messages[] = epson_outage_summary($outage) . '; printing resumes automatically when it answers.';
+    }
+
+    $recoveredAt = strtotime((string) $outage['recovered_at']) ?: false;
+
+    if (!$outage['active'] && $recoveredAt !== false && (time() - $recoveredAt) < 300) {
+        $minutes = max(1, (int) floor(((int) ($outage['last_duration'] ?? 0)) / 60));
+        $messages[] = 'Epson answered again after ' . $minutes . ' min; the queue carried on by itself.';
+    }
+
     // Photos the printer never reports back on are released here, whether or
     // not the printer is currently linked, so an order cannot sit in
     // "printing" for ever.
@@ -492,6 +544,22 @@ try {
     } catch (Throwable) {
         // The connection closing also releases the lock.
     }
+}
+
+// Outage emailing happens after the worker lock is released, so a slow mailer
+// cannot block the next cron tick.
+try {
+    $outageAction = epson_outage_alert_if_needed();
+
+    if ($outageAction === 'alert') {
+        $messages[] = 'Epson outage alert emailed.';
+    } elseif ($outageAction === 'reminder') {
+        $messages[] = 'Epson outage reminder emailed.';
+    } elseif ($outageAction === 'recovery') {
+        $messages[] = 'Epson recovery email sent.';
+    }
+} catch (Throwable $e) {
+    $errors[] = 'Epson outage alert failed: ' . $e->getMessage();
 }
 
 if ($messages !== []) {

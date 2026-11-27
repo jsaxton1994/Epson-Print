@@ -47,6 +47,7 @@ try {
     $health  = queue_health();
     $epson   = EpsonClient::fromSettings();
     $printer = $epson->isConnected();
+    $outage  = epson_outage_state();
 
     $issue = null;
 
@@ -60,7 +61,9 @@ try {
         $issue = 'worker_error';
     } elseif ($health['queued'] > 0 && !$printer) {
         $issue = 'printer_unlinked';
-    } elseif ($health['queue_stalled']) {
+    } elseif ($health['queue_stalled'] && !$outage['active']) {
+        // While Epson is unreachable the worker sends its own outage alert
+        // (and a recovery note), so a second "stalled" email would be noise.
         $issue = 'queue_stalled';
     }
 
