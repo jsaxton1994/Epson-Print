@@ -32,6 +32,17 @@ try {
 }
 
 foreach ([
+    '/printing/jobs',
+    '/printing/capability/photo',
+] as $path) {
+    try {
+        $out['GET ' . $path] = $raw->invoke($epson, 'GET', $path, null, 15, 1);
+    } catch (EpsonException $e) {
+        $out['GET ' . $path] = 'ERR ' . $e->statusCode . ': ' . $e->getMessage();
+    }
+}
+
+foreach ([
     '/printing/devices/status',
     '/printing/devices/ink',
     '/printing/supplies',
