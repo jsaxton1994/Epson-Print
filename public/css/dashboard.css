@@ -655,16 +655,6 @@
 .device-name h3 { color: #fff; font-size: 1.1rem; margin: 0; }
 .device-name p { margin: 0; font-size: .78rem; color: rgba(255, 255, 255, .6); }
 
-.device-detail {
-    position: relative;
-    margin: 10px 0 0;
-    font-size: .82rem;
-    color: rgba(255, 255, 255, .72);
-    max-width: 62ch;
-}
-
-.device-detail strong { color: #fff; font-weight: 650; }
-
 .device-meta {
     position: relative;
     display: flex;

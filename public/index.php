@@ -14,6 +14,10 @@ $startUrl = $user === null
 
 $printerStatus = epson_status();
 $printerOnline = $printerStatus['key'] === 'online';
+$home          = landing_section('home');
+$how           = landing_section('how');
+$printerCopy   = landing_section('printer');
+$faq           = landing_section('faq');
 
 site_head('', ['active' => 'home']);
 ?>
@@ -28,11 +32,8 @@ site_head('', ['active' => 'home']);
     <div class="container hero-grid">
         <div class="hero-copy">
             <span class="hero-badge<?= $printerOnline ? '' : ' is-off' ?>"><span class="status-dot"></span> <?= $printerOnline ? 'Online now · 4 × 6 photo prints' : '4 × 6 photo prints · ' . ($printerStatus['key'] === 'not_linked' ? 'link pending' : 'setup needed') ?></span>
-            <h1>Your photos.<br><span class="grad-text">Printed free.</span></h1>
-            <p class="hero-lead">
-                Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos — they upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time — choose 4 × 6 and borderless, and they
-                <?= $printerOnline ? 'go straight to' : 'queue for' ?> our Epson ET-2926 on real photo paper. No credits, no subscriptions, no card details.
-            </p>
+            <h1><?= e($home['title']) ?><br><span class="grad-text"><?= e($home['accent']) ?></span></h1>
+            <p class="hero-lead"><?= nl2br(e($home['lead'])) ?></p>
             <div class="hero-actions">
                 <a class="btn btn-primary btn-lg" href="<?= e($startUrl) ?>"><?= icon('image') ?> Print your first photo</a>
                 <a class="btn btn-ghost btn-lg" href="#how-it-works">How it works</a>
@@ -79,10 +80,10 @@ site_head('', ['active' => 'home']);
 
     <div class="container">
         <div class="trust-strip reveal">
-            <div class="trust-item"><?= icon('shield') ?> No payments, ever</div>
-            <div class="trust-item"><?= icon('printer') ?> Real photo paper</div>
-            <div class="trust-item"><?= icon('layers') ?> Track every print</div>
-            <div class="trust-item"><?= icon('image') ?> Private photo storage</div>
+            <?php $trustIcons = ['shield', 'printer', 'layers', 'image']; ?>
+            <?php foreach (array_values($home['trust']) as $index => $trustItem): ?>
+                <div class="trust-item"><?= icon($trustIcons[$index] ?? 'check') ?> <?= e($trustItem) ?></div>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>
@@ -90,32 +91,22 @@ site_head('', ['active' => 'home']);
 <section class="section" id="how-it-works">
     <div class="container">
         <div class="section-head reveal">
-            <span class="eyebrow">Three easy steps</span>
-            <h2>From camera roll to photo print</h2>
-            <p>No drivers to install and no app to download. Everything happens in your browser, on any device.</p>
+            <span class="eyebrow"><?= e($how['eyebrow']) ?></span>
+            <h2><?= e($how['heading']) ?></h2>
+            <p><?= nl2br(e($how['intro'])) ?></p>
         </div>
 
         <div class="steps">
-            <article class="step-card reveal">
-                <span class="step-num">01</span>
-                <span class="step-icon"><?= icon('upload') ?></span>
-                <h3>Upload your photos</h3>
-                <p>Select up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos at once — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF and more. They upload <?= (int) MAX_PHOTOS_PER_BATCH ?> at a time, so a big album never needs one huge request. Up to <?= e(MAX_UPLOAD_MB) ?> MB each.</p>
-            </article>
-
-            <article class="step-card reveal reveal-delay-1">
-                <span class="step-num">02</span>
-                <span class="step-icon"><?= icon('gear') ?></span>
-                <h3>Pick 4 × 6 &amp; finish</h3>
-                <p>Choose 4 × 6, 5 × 7 or A4, borderless or a white frame, colour and quality. Every photo prints once.</p>
-            </article>
-
-            <article class="step-card reveal reveal-delay-2">
-                <span class="step-num">03</span>
-                <span class="step-icon"><?= icon('check') ?></span>
-                <h3>Watch it print</h3>
-                <p>Your dashboard shows the queue and the live status. We send the photo to the ET-2926 and mark it printed.</p>
-            </article>
+            <?php $stepIcons = ['upload', 'gear', 'check']; ?>
+            <?php $stepDelays = ['', ' reveal-delay-1', ' reveal-delay-2']; ?>
+            <?php foreach ($how['steps'] as $index => $step): ?>
+                <article class="step-card reveal<?= $stepDelays[$index] ?? '' ?>">
+                    <span class="step-num"><?= str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT) ?></span>
+                    <span class="step-icon"><?= icon($stepIcons[$index] ?? 'check') ?></span>
+                    <h3><?= e($step['title']) ?></h3>
+                    <p><?= nl2br(e($step['text'])) ?></p>
+                </article>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>
@@ -123,18 +114,13 @@ site_head('', ['active' => 'home']);
 <section class="section section-soft" id="printer">
     <div class="container split">
         <div class="split-copy reveal">
-            <span class="eyebrow">The hardware</span>
-            <h2>Real ink on real photo paper</h2>
-            <p>
-                Every photo travels in Epson Connect's photo mode to an Epson ET-2926 EcoTank sitting on a desk.
-                That means a proper borderless 4 × 6 print from the rear feeder — and refillable ink tanks instead
-                of cartridges, so free photo printing can actually keep going.
-            </p>
+            <span class="eyebrow"><?= e($printerCopy['eyebrow']) ?></span>
+            <h2><?= e($printerCopy['heading']) ?></h2>
+            <p><?= nl2br(e($printerCopy['body'])) ?></p>
             <ul class="check-list">
-                <li><?= icon('check') ?><span>4 × 6 in borderless prints on Epson photo paper</span></li>
-                <li><?= icon('check') ?><span>5 × 7 in and A4 when you want the photo bigger</span></li>
-                <li><?= icon('check') ?><span>High-quality photo mode through the Epson Connect API v2</span></li>
-                <li><?= icon('check') ?><span>4-colour EcoTank ink with refillable bottles</span></li>
+                <?php foreach ($printerCopy['points'] as $point): ?>
+                    <li><?= icon('check') ?><span><?= e($point) ?></span></li>
+                <?php endforeach; ?>
             </ul>
             <a class="btn btn-ghost" href="<?= e($startUrl) ?>"><?= icon('image') ?> Send it a photo</a>
         </div>
@@ -217,45 +203,17 @@ site_head('', ['active' => 'home']);
 <section class="section section-soft" id="faq">
     <div class="container">
         <div class="section-head reveal">
-            <span class="eyebrow">Questions</span>
-            <h2>The bits people ask about</h2>
+            <span class="eyebrow"><?= e($faq['eyebrow']) ?></span>
+            <h2><?= e($faq['heading']) ?></h2>
         </div>
 
         <div class="faq">
-            <details class="faq-item reveal">
-                <summary>Is it really free, or is there a catch?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>It is really free. There is no payment form anywhere on the site, no credits to top up and no print allowance. Photos print on the house, 4 × 6 included.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>What photos can I print?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Up to <?= (int) MAX_PHOTOS_PER_ORDER ?> photos per order — JPG, PNG, HEIC, WebP, GIF, BMP, TIFF, AVIF and similar. You can select them all at once; they upload automatically in batches of up to <?= (int) MAX_PHOTOS_PER_BATCH ?>, <?= e(MAX_UPLOAD_MB) ?> MB each. Choose 4 × 6, 5 × 7 or A4, borderless or with a white border, colour or black and white, and standard or high quality. Every photo prints once — ask the print desk if you ever need a reprint.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>Will 4 × 6 crop my photo?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>4 × 6 is a 3:2 shape, so a photo taken in that ratio fits perfectly. Taller or wider photos are fitted to the paper and the edges may be trimmed. Add a note if you want a particular part kept in frame.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>How long does a print take?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Photos are printed in the order they arrive, usually the same day. Your dashboard shows whether a print is in the queue, printing or finished, so you never have to guess.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>Is my photo private?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Your photos are stored outside the public website folder and only administrators can open them. Other customers cannot see your photos or your orders. Ask us and we will delete a photo and its order for you.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>Can I print from my phone?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Yes. The whole site works in a mobile browser — choose a photo from your camera roll, set 4 × 6 and send it. No Epson app or Epson account is needed; the print desk handles the printer for you.</p></div>
-            </details>
-
-            <details class="faq-item reveal">
-                <summary>What paper do you print on?<span class="faq-plus"></span></summary>
-                <div class="faq-body"><p>Epson photo paper in the rear feeder, which gives the best colour and a borderless 4 × 6 finish. If your photo needs something specific — matte, a white border, a bigger size — add it to the order notes.</p></div>
-            </details>
+            <?php foreach ($faq['items'] as $item): ?>
+                <details class="faq-item reveal">
+                    <summary><?= e($item['q']) ?><span class="faq-plus"></span></summary>
+                    <div class="faq-body"><p><?= nl2br(e($item['a'])) ?></p></div>
+                </details>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>

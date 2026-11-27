@@ -1,6 +1,7 @@
 <?php
 /**
- * Site Settings: the name the site shows and the addresses it mails.
+ * Site Settings: identity and contact addresses, print defaults, the order
+ * details sheet and the landing page copy.
  */
 
 declare(strict_types=1);
@@ -59,9 +60,34 @@ if (is_post()) {
         flash('success', 'Order details sheet ' . ($enabled ? 'enabled' : 'disabled') . '.');
         redirect('admin/site-settings.php');
     }
+
+    $contentSections = [
+        'content_home'    => 'home',
+        'content_how'     => 'how',
+        'content_printer' => 'printer',
+        'content_faq'     => 'faq',
+    ];
+
+    if (array_key_exists(input('action'), $contentSections)) {
+        $section = $contentSections[input('action')];
+
+        landing_store($section, landing_from_post($section, $_POST));
+
+        flash('success', 'Landing page content saved.');
+        redirect('admin/site-settings.php');
+    }
 }
 
-app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, the addresses it mails and the print defaults for new orders.');
+$landing        = landing_content();
+$homeContent    = $landing['home'];
+$howContent     = $landing['how'];
+$printerContent = $landing['printer'];
+$faqContent     = $landing['faq'];
+$faqRows        = array_values($faqContent['items']);
+$faqRows[]      = ['q' => '', 'a' => ''];
+$faqRows[]      = ['q' => '', 'a' => ''];
+
+app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, the addresses it mails, the print defaults and the landing page copy.');
 ?>
 
 <div class="settings-layout">
@@ -224,6 +250,180 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
             </div>
         </section>
     </div>
+</div>
+
+
+<div class="stack" style="margin-top:24px">
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h3>Homepage content</h3>
+                <p>The hero at the top of the landing page</p>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="content_home">
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="home_title">Heading</label>
+                        <input class="input" type="text" id="home_title" name="title" value="<?= e($homeContent['title']) ?>" maxlength="120" required>
+                    </div>
+                    <div class="field">
+                        <label for="home_accent">Highlighted line</label>
+                        <input class="input" type="text" id="home_accent" name="accent" value="<?= e($homeContent['accent']) ?>" maxlength="120" required>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="home_lead">Intro paragraph</label>
+                    <textarea class="textarea" id="home_lead" name="lead" rows="4" maxlength="700"><?= e($homeContent['lead']) ?></textarea>
+                </div>
+
+                <div class="field-row">
+                    <?php foreach ($homeContent['trust'] as $index => $trustItem): ?>
+                        <div class="field">
+                            <label for="home_trust_<?= (int) $index ?>">Trust point <?= (int) $index + 1 ?></label>
+                            <input class="input" type="text" id="home_trust_<?= (int) $index ?>" name="trust[<?= (int) $index ?>]" value="<?= e($trustItem) ?>" maxlength="80">
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <button class="btn btn-primary mt-3" type="submit"><?= icon('check') ?> Save homepage content</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h3>How it works content</h3>
+                <p>The three steps below the hero</p>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="content_how">
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="how_eyebrow">Eyebrow</label>
+                        <input class="input" type="text" id="how_eyebrow" name="eyebrow" value="<?= e($howContent['eyebrow']) ?>" maxlength="80">
+                    </div>
+                    <div class="field">
+                        <label for="how_heading">Heading</label>
+                        <input class="input" type="text" id="how_heading" name="heading" value="<?= e($howContent['heading']) ?>" maxlength="120" required>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="how_intro">Intro paragraph</label>
+                    <textarea class="textarea" id="how_intro" name="intro" rows="2" maxlength="500"><?= e($howContent['intro']) ?></textarea>
+                </div>
+
+                <?php foreach ($howContent['steps'] as $index => $step): ?>
+                    <div class="field" style="border-top:1px solid #e6ecf5;padding-top:16px;margin-top:16px">
+                        <label for="how_step_title_<?= (int) $index ?>">Step <?= (int) $index + 1 ?> title</label>
+                        <input class="input" type="text" id="how_step_title_<?= (int) $index ?>" name="steps[<?= (int) $index ?>][title]" value="<?= e($step['title']) ?>" maxlength="120" required>
+                    </div>
+                    <div class="field">
+                        <label for="how_step_text_<?= (int) $index ?>">Step <?= (int) $index + 1 ?> text</label>
+                        <textarea class="textarea" id="how_step_text_<?= (int) $index ?>" name="steps[<?= (int) $index ?>][text]" rows="3" maxlength="600"><?= e($step['text']) ?></textarea>
+                    </div>
+                <?php endforeach; ?>
+
+                <button class="btn btn-primary mt-3" type="submit"><?= icon('check') ?> Save how it works content</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h3>The printer content</h3>
+                <p>The hardware section and its checklist</p>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="content_printer">
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="printer_eyebrow">Eyebrow</label>
+                        <input class="input" type="text" id="printer_eyebrow" name="eyebrow" value="<?= e($printerContent['eyebrow']) ?>" maxlength="80">
+                    </div>
+                    <div class="field">
+                        <label for="printer_heading">Heading</label>
+                        <input class="input" type="text" id="printer_heading" name="heading" value="<?= e($printerContent['heading']) ?>" maxlength="120" required>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="printer_body">Paragraph</label>
+                    <textarea class="textarea" id="printer_body" name="body" rows="4" maxlength="800"><?= e($printerContent['body']) ?></textarea>
+                </div>
+
+                <div class="field-row">
+                    <?php foreach ($printerContent['points'] as $index => $point): ?>
+                        <div class="field">
+                            <label for="printer_point_<?= (int) $index ?>">Checklist point <?= (int) $index + 1 ?></label>
+                            <input class="input" type="text" id="printer_point_<?= (int) $index ?>" name="points[<?= (int) $index ?>]" value="<?= e($point) ?>" maxlength="160">
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <button class="btn btn-primary mt-3" type="submit"><?= icon('check') ?> Save printer content</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h3>FAQ content</h3>
+                <p>The questions at the bottom of the landing page</p>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form method="post">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="content_faq">
+
+                <div class="field-row">
+                    <div class="field">
+                        <label for="faq_eyebrow">Eyebrow</label>
+                        <input class="input" type="text" id="faq_eyebrow" name="eyebrow" value="<?= e($faqContent['eyebrow']) ?>" maxlength="80">
+                    </div>
+                    <div class="field">
+                        <label for="faq_heading">Heading</label>
+                        <input class="input" type="text" id="faq_heading" name="heading" value="<?= e($faqContent['heading']) ?>" maxlength="120" required>
+                    </div>
+                </div>
+
+                <p class="help">Leave a question blank to remove that item. New items appear in the order shown here.</p>
+
+                <?php $faqCount = 0; ?>
+                <?php foreach ($faqRows as $index => $item): ?>
+                    <?php $faqCount++; ?>
+                    <div class="field" style="border-top:1px solid #e6ecf5;padding-top:16px;margin-top:16px">
+                        <label for="faq_q_<?= (int) $index ?>">Question <?= $faqCount ?></label>
+                        <input class="input" type="text" id="faq_q_<?= (int) $index ?>" name="faq[<?= (int) $index ?>][q]" value="<?= e($item['q']) ?>" maxlength="200">
+                    </div>
+                    <div class="field">
+                        <label for="faq_a_<?= (int) $index ?>">Answer <?= $faqCount ?></label>
+                        <textarea class="textarea" id="faq_a_<?= (int) $index ?>" name="faq[<?= (int) $index ?>][a]" rows="2" maxlength="1500"><?= e($item['a']) ?></textarea>
+                    </div>
+                <?php endforeach; ?>
+
+                <button class="btn btn-primary mt-3" type="submit"><?= icon('check') ?> Save FAQ content</button>
+            </form>
+        </div>
+    </section>
 </div>
 
 <?php app_end(); ?>
