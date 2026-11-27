@@ -72,14 +72,16 @@ $printingNowOrder = db_one(
      LIMIT 1"
 );
 
-$printingHint = 'Nothing on the printer';
+// Labelled as the queue's own record: Printer Settings shows what Epson
+// reports, so the two can differ for a moment while a sheet finishes.
+$printingHint = 'Queue record · nothing on the printer';
 
 if ($printingNowOrder !== null) {
-    $printingHint = (string) $printingNowOrder['reference']
+    $printingHint = 'Queue record · ' . (string) $printingNowOrder['reference']
         . ' · photo ' . max(1, (int) $printingNowOrder['position'])
         . ' of ' . max(1, (int) $printingNowOrder['photo_total']);
 } elseif ($queueHealth['paused']) {
-    $printingHint = 'Paused — the queue is holding';
+    $printingHint = 'Queue record · paused — the queue is holding';
 }
 
 $recent = db_all(

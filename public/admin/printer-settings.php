@@ -169,12 +169,12 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
 </div>
 
 <p class="muted" style="font-size:.8rem;margin:10px 2px 18px">
-    <?= !empty($live['never_checked']) ? 'Not checked yet' : 'Checked ' . e(time_ago((string) $live['checked_at'])) ?>
+    Epson Connect · <?= !empty($live['never_checked']) ? 'not checked yet' : 'checked ' . e(time_ago((string) $live['checked_at'])) ?>
     <?= !empty($live['stale']) ? ' · last known reading — Epson did not answer' : '' ?>
 </p>
 
 <div class="stats-grid is-stacked">
-    <?php stat_card('Printer', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
+    <?php stat_card('Printer (Epson)', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
     <div class="stat-card tone-<?= e($inkTone) ?>">
         <div class="stat-icon"><?= icon('droplet') ?></div>
         <div class="stat-body">
