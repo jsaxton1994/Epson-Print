@@ -17,7 +17,10 @@ $printerOnline = $printerStatus['key'] === 'online';
 $home          = landing_section('home');
 $how           = landing_section('how');
 $printerCopy   = landing_section('printer');
+$types         = landing_section('types');
+$promise       = landing_section('promise');
 $faq           = landing_section('faq');
+$cta           = landing_section('cta');
 
 site_head('', ['active' => 'home']);
 ?>
@@ -153,20 +156,16 @@ site_head('', ['active' => 'home']);
 <section class="section">
     <div class="container">
         <div class="section-head reveal">
-            <span class="eyebrow">Made for the photos on your phone</span>
-            <h2>If you can take it, print it</h2>
-            <p>A free photo lab for the pictures that never make it off your camera roll.</p>
+            <span class="eyebrow"><?= e($types['eyebrow']) ?></span>
+            <h2><?= e($types['heading']) ?></h2>
+            <p><?= nl2br(e($types['intro'])) ?></p>
         </div>
 
         <div class="print-types reveal">
-            <span class="print-type"><?= icon('image') ?> 4 × 6 snapshots</span>
-            <span class="print-type"><?= icon('phone') ?> Phone camera roll</span>
-            <span class="print-type"><?= icon('sparkles') ?> Holiday photos</span>
-            <span class="print-type"><?= icon('leaf') ?> Pet portraits</span>
-            <span class="print-type"><?= icon('users') ?> Family photos</span>
-            <span class="print-type"><?= icon('mail') ?> Thank-you prints</span>
-            <span class="print-type"><?= icon('layers') ?> Mini wall prints</span>
-            <span class="print-type"><?= icon('home') ?> Fridge favourites</span>
+            <?php $typeIcons = ['image', 'phone', 'sparkles', 'leaf', 'users', 'mail', 'layers', 'home']; ?>
+            <?php foreach (array_values($types['items']) as $index => $item): ?>
+                <span class="print-type"><?= icon($typeIcons[$index] ?? 'image') ?> <?= e($item) ?></span>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>
@@ -175,26 +174,18 @@ site_head('', ['active' => 'home']);
     <div class="container">
         <div class="promise-band reveal">
             <div class="promise-copy">
-                <span class="eyebrow light">The promise</span>
-                <h2>Free photos, actually</h2>
-                <p>
-                    No card halfway through, no print allowance, no printer hidden behind a paywall.
-                    Upload, choose 4 × 6, print — and that is the whole product.
-                </p>
+                <span class="eyebrow light"><?= e($promise['eyebrow']) ?></span>
+                <h2><?= e($promise['heading']) ?></h2>
+                <p><?= nl2br(e($promise['body'])) ?></p>
             </div>
             <div class="promise-list">
-                <div class="promise-item">
-                    <?= icon('shield') ?>
-                    <div><strong>No payments, no credits</strong><span>4 × 6, borderless, high quality and reprints are all included.</span></div>
-                </div>
-                <div class="promise-item">
-                    <?= icon('bolt') ?>
-                    <div><strong>No account fees</strong><span>Signing up takes an email address and a password. Nothing else.</span></div>
-                </div>
-                <div class="promise-item">
-                    <?= icon('leaf') ?>
-                    <div><strong>Kinder on ink</strong><span>EcoTank refillable ink keeps running costs low, so free stays free.</span></div>
-                </div>
+                <?php $promiseIcons = ['shield', 'bolt', 'leaf']; ?>
+                <?php foreach (array_values($promise['items']) as $index => $item): ?>
+                    <div class="promise-item">
+                        <?= icon($promiseIcons[$index] ?? 'check') ?>
+                        <div><strong><?= e($item['title']) ?></strong><span><?= e($item['text']) ?></span></div>
+                    </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </div>
@@ -221,9 +212,9 @@ site_head('', ['active' => 'home']);
 <section class="section" style="padding-top:0">
     <div class="container">
         <div class="cta-band reveal">
-            <span class="eyebrow">Ready when you are</span>
-            <h2>Your favourite photo is one upload away</h2>
-            <p>Create a free account, pick a photo and follow it all the way to photo paper.</p>
+            <span class="eyebrow"><?= e($cta['eyebrow']) ?></span>
+            <h2><?= e($cta['heading']) ?></h2>
+            <p><?= nl2br(e($cta['body'])) ?></p>
             <div class="cta-actions">
                 <a class="btn btn-primary btn-lg" href="<?= e($startUrl) ?>"><?= icon('image') ?> Print a photo free</a>
                 <a class="btn btn-ghost btn-lg" href="<?= e(url('public/login.php')) ?>">Sign in</a>

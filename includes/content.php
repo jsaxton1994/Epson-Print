@@ -1,11 +1,12 @@
 <?php
 /**
- * Landing page copy: editable text for the home, how-it-works, printer and FAQ
- * sections, with the defaults below used until an administrator saves changes.
+ * Landing page copy: editable text for every marketing section, with the
+ * defaults below used until an administrator saves changes.
  *
  * Each section is one settings row of JSON (`landing_home`, `landing_how`,
- * `landing_printer`, `landing_faq`). A missing field falls back to these
- * defaults, so an older or partial row still renders a complete page.
+ * `landing_printer`, `landing_types`, `landing_promise`, `landing_faq`,
+ * `landing_cta`). A missing field falls back to these defaults, so an older
+ * or partial row still renders a complete page.
  */
 
 declare(strict_types=1);
@@ -85,6 +86,46 @@ function landing_defaults(): array
                 'High-quality photo mode through the Epson Connect API v2',
                 '4-colour EcoTank ink with refillable bottles',
             ],
+        ],
+        'types' => [
+            'eyebrow' => 'Made for the photos on your phone',
+            'heading' => 'If you can take it, print it',
+            'intro'   => 'A free photo lab for the pictures that never make it off your camera roll.',
+            'items'   => [
+                '4 × 6 snapshots',
+                'Phone camera roll',
+                'Holiday photos',
+                'Pet portraits',
+                'Family photos',
+                'Thank-you prints',
+                'Mini wall prints',
+                'Fridge favourites',
+            ],
+        ],
+        'promise' => [
+            'eyebrow' => 'The promise',
+            'heading' => 'Free photos, actually',
+            'body'    => 'No card halfway through, no print allowance, no printer hidden behind a paywall.'
+                . ' Upload, choose 4 × 6, print — and that is the whole product.',
+            'items'   => [
+                [
+                    'title' => 'No payments, no credits',
+                    'text'  => '4 × 6, borderless, high quality and reprints are all included.',
+                ],
+                [
+                    'title' => 'No account fees',
+                    'text'  => 'Signing up takes an email address and a password. Nothing else.',
+                ],
+                [
+                    'title' => 'Kinder on ink',
+                    'text'  => 'EcoTank refillable ink keeps running costs low, so free stays free.',
+                ],
+            ],
+        ],
+        'cta' => [
+            'eyebrow' => 'Ready when you are',
+            'heading' => 'Your favourite photo is one upload away',
+            'body'    => 'Create a free account, pick a photo and follow it all the way to photo paper.',
         ],
         'faq' => [
             'eyebrow' => 'Questions',
@@ -202,6 +243,53 @@ function landing_content(): array
         }
     }
 
+    $types = json_decode((string) setting('landing_types', ''), true);
+
+    if (is_array($types)) {
+        foreach (['eyebrow', 'heading', 'intro'] as $key) {
+            if (isset($types[$key]) && is_string($types[$key])) {
+                $content['types'][$key] = $types[$key];
+            }
+        }
+
+        if (isset($types['items']) && is_array($types['items']) && count($types['items']) === 8) {
+            $content['types']['items'] = array_values(array_map('strval', $types['items']));
+        }
+    }
+
+    $promise = json_decode((string) setting('landing_promise', ''), true);
+
+    if (is_array($promise)) {
+        foreach (['eyebrow', 'heading', 'body'] as $key) {
+            if (isset($promise[$key]) && is_string($promise[$key])) {
+                $content['promise'][$key] = $promise[$key];
+            }
+        }
+
+        if (isset($promise['items']) && is_array($promise['items']) && count($promise['items']) === 3) {
+            $items = [];
+
+            foreach (array_values($promise['items']) as $index => $item) {
+                $items[] = [
+                    'title' => is_string($item['title'] ?? null) ? $item['title'] : $defaults['promise']['items'][$index]['title'],
+                    'text'  => is_string($item['text'] ?? null) ? $item['text'] : $defaults['promise']['items'][$index]['text'],
+                ];
+            }
+
+            $content['promise']['items'] = $items;
+        }
+    }
+
+    $cta = json_decode((string) setting('landing_cta', ''), true);
+
+    if (is_array($cta)) {
+        foreach (['eyebrow', 'heading', 'body'] as $key) {
+            if (isset($cta[$key]) && is_string($cta[$key])) {
+                $content['cta'][$key] = $cta[$key];
+            }
+        }
+    }
+
     $faq = json_decode((string) setting('landing_faq', ''), true);
 
     if (is_array($faq)) {
@@ -286,6 +374,41 @@ function landing_from_post(string $section, array $post): array
                     static fn (mixed $value): string => landing_text($value, 160),
                     array_values(array_slice((array) ($post['points'] ?? []), 0, 4))
                 ),
+            ];
+
+        case 'types':
+            return [
+                'eyebrow' => landing_text($post['eyebrow'] ?? '', 80),
+                'heading' => landing_text($post['heading'] ?? '', 120),
+                'intro'   => landing_text($post['intro'] ?? '', 400),
+                'items'   => array_map(
+                    static fn (mixed $value): string => landing_text($value, 80),
+                    array_values(array_slice((array) ($post['items'] ?? []), 0, 8))
+                ),
+            ];
+
+        case 'promise':
+            $items = [];
+
+            foreach (array_slice((array) ($post['items'] ?? []), 0, 3) as $item) {
+                $items[] = [
+                    'title' => landing_text(is_array($item) ? ($item['title'] ?? '') : '', 120),
+                    'text'  => landing_text(is_array($item) ? ($item['text'] ?? '') : '', 300),
+                ];
+            }
+
+            return [
+                'eyebrow' => landing_text($post['eyebrow'] ?? '', 80),
+                'heading' => landing_text($post['heading'] ?? '', 120),
+                'body'    => landing_text($post['body'] ?? '', 500),
+                'items'   => $items,
+            ];
+
+        case 'cta':
+            return [
+                'eyebrow' => landing_text($post['eyebrow'] ?? '', 80),
+                'heading' => landing_text($post['heading'] ?? '', 120),
+                'body'    => landing_text($post['body'] ?? '', 400),
             ];
 
         case 'faq':
