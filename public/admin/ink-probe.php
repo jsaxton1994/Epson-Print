@@ -1,7 +1,8 @@
 <?php
 /**
- * TEMPORARY probe: what the live Epson Connect API actually returns.
- * Admin-only, read-only; deleted again once the ink question is settled.
+ * TEMPORARY probe: what the live Epson Connect API actually returns, and one
+ * POST to clear the notification callback left pointing at the deleted script.
+ * Admin-only; deleted again once the answer is recorded.
  */
 
 declare(strict_types=1);
@@ -19,28 +20,18 @@ $epson->bypassCircuit = true;
 $method = new ReflectionMethod(EpsonClient::class, 'api');
 $method->setAccessible(true);
 
-$paths = [
-    '/printing/devices/info',
-    '/printing/devices',
-    '/printing/devices/status',
-    '/printing/capability?capability=photo',
-    '/printing/settings/notification',
-];
-
-$out = ['connected' => $epson->isConnected(), 'results' => []];
-
-foreach ($paths as $path) {
+$call = static function (string $verb, string $path, ?array $body = null) use ($method, $epson): array {
     try {
-        $body = $method->invoke($epson, 'GET', $path, null, 25, 1);
-        $out['results'][$path] = ['ok' => true, 'body' => $body];
+        return ['ok' => true, 'body' => $method->invoke($epson, $verb, $path, $body, 30, 1)];
     } catch (EpsonException $e) {
-        $out['results'][$path] = [
-            'ok'      => false,
-            'code'    => $e->statusCode,
-            'message' => $e->getMessage(),
-            'payload' => $e->payload,
-        ];
+        return ['ok' => false, 'code' => $e->statusCode, 'message' => $e->getMessage(), 'payload' => $e->payload];
     }
-}
+};
+
+$out = ['connected' => $epson->isConnected()];
+$out['device_info']        = $call('GET', '/printing/devices/info');
+$out['notification_before'] = $call('GET', '/printing/settings/notification');
+$out['notification_off']    = $call('POST', '/printing/settings/notification', ['notification' => false]);
+$out['notification_after']  = $call('GET', '/printing/settings/notification');
 
 echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
