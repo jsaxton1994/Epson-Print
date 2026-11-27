@@ -17,7 +17,7 @@ const APP_TAGLINE = 'Free printing, powered by Epson Connect';
 
 // Shown centred in the site footer. Bump on every push so the live site
 // makes it obvious which build is deployed (1.0.0 → 1.0.1 → 1.0.2 …).
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.4.4';
 const APP_TIMEZONE = 'UTC';
 
 // Set to true only while developing: it prints PHP errors into the page.
@@ -128,6 +128,10 @@ const BACKUP_PHOTO_BYTES_RUN  = 200 * 1024 * 1024;
 const BACKUP_MAIL_MAX_BYTES   = 4 * 1024 * 1024;
 
 const PRINT_QUEUE_STALE_MINUTES = 10;
+// While a run holds the lock, the worker refreshes a liveness timestamp on every
+// loop iteration and inside slow Epson transfers. Older than this and the run
+// is treated as hung, whatever its slice deadline says.
+const PRINT_QUEUE_LIVENESS_SECONDS = 60;
 const PRINT_QUEUE_ORDER_STALL_MINUTES = 20;
 const PRINT_QUEUE_WATCHDOG_STALE_MINUTES = 15;
 const PRINT_QUEUE_ALERT_COOLDOWN_MINUTES = 60;

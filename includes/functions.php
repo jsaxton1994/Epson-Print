@@ -822,6 +822,27 @@ function relay_pull_notifications(int $limit = 25): array
 }
 
 /**
+ * Record that the worker is alive.
+ *
+ * Called at the start of every loop iteration and from inside slow Epson
+ * transfers, so a hung run stops beating long before its slice deadline. The
+ * write is throttled: a fast loop does not need a database write a second.
+ */
+function print_worker_alive(bool $force = false): void
+{
+    static $last = 0.0;
+
+    $now = microtime(true);
+
+    if (!$force && ($now - $last) < 5.0) {
+        return;
+    }
+
+    $last = $now;
+    set_setting('print_queue_liveness', now());
+}
+
+/**
  * Current worker/queue health, shared by the dashboard and the watchdog.
  *
  * @return array<string, mixed>
@@ -1477,6 +1498,14 @@ function queue_health(): array
     $sliceUntil    = strtotime((string) setting('print_queue_slice_deadline', '')) ?: false;
     $runInProgress = $sliceUntil !== false && $sliceUntil > $now;
 
+    // A run that is inside its slice but has stopped writing liveness is hung,
+    // not working: the deadline only describes how long a run may take.
+    $liveness    = (string) setting('print_queue_liveness', '');
+    $livenessTs  = $liveness !== '' ? strtotime($liveness) : false;
+    $livenessAge = $livenessTs === false ? null : max(0, $now - $livenessTs);
+    $runHung     = $runInProgress
+        && ($livenessAge === null || $livenessAge > PRINT_QUEUE_LIVENESS_SECONDS);
+
     // One order at a time means a big order takes hours and the orders behind it
     // wait: that is normal. A stall is orders waiting while nothing is on the
     // printer and nothing has come off it for a while.
@@ -1496,11 +1525,14 @@ function queue_health(): array
         'last_status'       => setting('print_queue_last_status', 'unknown') ?? 'unknown',
         'last_error'        => (string) setting('print_queue_last_error', ''),
         'worker_never_run'  => $lastRunTs === false,
-        'worker_stale'      => $lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter
-            && !$runInProgress,
+        'worker_stale'      => $runHung
+            || ($lastRunTs !== false && $lastRunAge !== null && $lastRunAge > $staleAfter && !$runInProgress),
         'run_in_progress'   => $runInProgress,
         'slice_deadline'    => $sliceUntil === false ? '' : date('Y-m-d H:i:s', $sliceUntil),
         'slice_left'        => $sliceUntil === false ? null : max(0, $sliceUntil - $now),
+        'liveness'          => $liveness,
+        'liveness_age'      => $livenessAge,
+        'run_hung'          => $runHung,
         'queued'            => $queued,
         'oldest_reference'  => $oldest['reference'] ?? null,
         'oldest_age'        => $oldestAge,

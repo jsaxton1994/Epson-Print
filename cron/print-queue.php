@@ -43,6 +43,7 @@ set_setting('print_queue_last_run', now());
 // Publish how long this run may legitimately last, so the dashboard and the
 // watchdog can tell a long slice from a dead worker.
 set_setting('print_queue_slice_deadline', date('Y-m-d H:i:s', time() + PRINT_SLICE_BUDGET_SECONDS));
+print_worker_alive(true);
 
 $exitCode = 0;
 $messages = [];
@@ -50,6 +51,11 @@ $errors   = [];
 
 try {
     $epson = EpsonClient::fromSettings();
+
+    // While an upload or status call is in flight, keep proving the run is alive.
+    $epson->onActivity = static function (): void {
+        print_worker_alive();
+    };
 
     // Notifications Epson posted while the host was unreachable are waiting in
     // the relay: collect them before looking at the printer.
@@ -150,6 +156,7 @@ try {
                 $slice = min(1.0, $remaining);
                 usleep((int) round($slice * 1000000));
                 $remaining -= $slice;
+                print_worker_alive();
 
                 if ($kick !== 0 && epson_job_kick() !== $kick) {
                     return;
@@ -187,6 +194,8 @@ try {
             : 'o.created_at ASC, o.id ASC';
 
         while (microtime(true) < $sendDeadline) {
+            print_worker_alive();
+
             $frontOrder = db_one(
                 "SELECT o.*
                  FROM orders o
@@ -606,6 +615,7 @@ try {
 } finally {
     try {
         set_setting('print_queue_slice_deadline', '');
+        set_setting('print_queue_liveness', '');
         db_val("SELECT RELEASE_LOCK('printfree_print_queue')");
     } catch (Throwable) {
         // The connection closing also releases the lock.

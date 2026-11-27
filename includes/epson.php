@@ -34,6 +34,12 @@ final class EpsonClient
     /** Diagnostics only: skip the fail-fast circuit to test the connection. */
     public bool $bypassCircuit = false;
 
+    /**
+     * Called during slow transfers, so the print worker can prove it is alive
+     * while an upload or a status call is still in flight.
+     */
+    public $onActivity = null;
+
     private array $config;
 
     public function __construct(array $config)
@@ -488,6 +494,7 @@ final class EpsonClient
             }
 
             curl_setopt_array($ch, $options);
+            $this->attachActivity($ch);
 
             $body      = curl_exec($ch);
             $error     = curl_error($ch);
@@ -625,6 +632,41 @@ final class EpsonClient
     }
 
     /**
+     * Beat the worker's liveness during a transfer.
+     *
+     * Throttled to once every ten seconds, so a long upload is not mistaken for
+     * a hung run while a genuinely stalled transfer still goes quiet inside the
+     * liveness threshold.
+     */
+    private function attachActivity($ch): void
+    {
+        if ($this->onActivity === null) {
+            return;
+        }
+
+        $last = 0.0;
+
+        curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+        curl_setopt(
+            $ch,
+            CURLOPT_XFERINFOFUNCTION,
+            function () use (&$last): int {
+                $now = microtime(true);
+
+                if ($now - $last >= 10.0) {
+                    $last = $now;
+
+                    if ($this->onActivity !== null) {
+                        ($this->onActivity)();
+                    }
+                }
+
+                return 0;
+            }
+        );
+    }
+
+    /**
      * A connection that never opened: the edge address is unreachable, which is
      * different from a slow or rejected request on a working connection.
      */
@@ -688,6 +730,7 @@ final class EpsonClient
             }
 
             curl_setopt_array($ch, $options);
+            $this->attachActivity($ch);
 
             if ($body !== null) {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
