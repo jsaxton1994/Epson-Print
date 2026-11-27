@@ -96,8 +96,23 @@ $faqRows[]      = ['q' => '', 'a' => ''];
 app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, the addresses it mails, the print defaults and the landing page copy.');
 ?>
 
+<nav class="settings-jump" aria-label="Site settings sections">
+    <a href="#settings-identity">Site identity</a>
+    <a href="#settings-print">Print settings</a>
+    <a href="#settings-sheet">Details sheet</a>
+    <a href="#settings-home">Homepage</a>
+    <a href="#settings-how">How it works</a>
+    <a href="#settings-printer">The printer</a>
+    <a href="#settings-types">Photo types</a>
+    <a href="#settings-promise">Promise</a>
+    <a href="#settings-faq">FAQ</a>
+    <a href="#settings-closing">Closing</a>
+    <a href="#settings-storage">Storage</a>
+    <a href="#settings-where">Where these appear</a>
+</nav>
+
 <div class="stack">
-    <section class="panel">
+    <section class="panel" id="settings-identity">
         <div class="panel-head">
             <div>
                 <h3>Site identity</h3>
@@ -134,7 +149,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-print">
         <div class="panel-head">
             <div>
                 <h3>Print Settings</h3>
@@ -194,7 +209,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-sheet">
         <div class="panel-head">
             <div>
                 <h3>Order details sheet</h3>
@@ -227,7 +242,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
 </div>
 
 <div class="stack" style="margin-top:24px">
-    <section class="panel">
+    <section class="panel" id="settings-home">
         <div class="panel-head">
             <div>
                 <h3>Homepage content</h3>
@@ -269,7 +284,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-how">
         <div class="panel-head">
             <div>
                 <h3>How it works content</h3>
@@ -313,7 +328,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-printer">
         <div class="panel-head">
             <div>
                 <h3>The printer content</h3>
@@ -355,7 +370,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-types">
         <div class="panel-head">
             <div>
                 <h3>Photo types content</h3>
@@ -397,7 +412,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-promise">
         <div class="panel-head">
             <div>
                 <h3>Promise content</h3>
@@ -441,7 +456,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-faq">
         <div class="panel-head">
             <div>
                 <h3>FAQ content</h3>
@@ -483,7 +498,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
             </form>
         </div>
     </section>
-    <section class="panel">
+    <section class="panel" id="settings-closing">
         <div class="panel-head">
             <div>
                 <h3>Closing content</h3>
@@ -516,7 +531,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-storage">
         <div class="panel-head"><h3>Storage</h3></div>
         <div class="panel-body">
             <div class="summary-list">
@@ -532,7 +547,7 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows, 
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="settings-where">
         <div class="panel-head"><h3>Where these appear</h3></div>
         <div class="panel-body">
             <ul class="check-list" style="gap:12px">
