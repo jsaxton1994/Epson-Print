@@ -17,18 +17,6 @@ if (is_post()) {
     verify_csrf();
     $action = input('action');
 
-    if ($action === 'refresh') {
-        $fresh = printer_live_status_fresh($epson);
-
-        if (($fresh['state'] ?? '') === 'unreachable') {
-            flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
-        } else {
-            flash('info', 'Printer status refreshed.');
-        }
-
-        redirect('admin/printer-settings.php');
-    }
-
     if ($action === 'epson') {
         $clientId     = mb_substr(input('epson_client_id'), 0, 200);
         $clientSecret = trim((string) ($_POST['epson_client_secret'] ?? ''));
@@ -132,9 +120,6 @@ if (is_post()) {
 $epsonFresh = EpsonClient::fromSettings();
 $deviceName = $epsonFresh->deviceName();
 $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
-// This page asks Epson every time it opens, and keeps the last reading marked
-// stale if Epson does not answer, so a timeout never blanks the cards.
-$live       = printer_live_status_fresh($epsonFresh);
 
 $inkTokenOnce    = (string) ($_SESSION['ink_token_once'] ?? '');
 unset($_SESSION['ink_token_once']);
@@ -153,8 +138,8 @@ $edgePins       = array_values(array_unique(array_filter([
     epson_edge_ip('api.epsonconnect.com'),
 ])));
 
-// The bridge panel lists what was last posted; the ink and paper cards live on
-// the dashboard.
+// The bridge panel lists what was last posted; the printer, ink and paper cards
+// live on the dashboard.
 $ink = printer_ink_reading();
 
 $maintenance   = printing_pause_info();
@@ -162,15 +147,6 @@ $pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 
 
 app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926 link, the ink bridge and the credentials behind them.');
 ?>
-
-<p class="muted" style="font-size:.8rem;margin:10px 2px 18px">
-    Epson Connect · <?= !empty($live['never_checked']) ? 'not checked yet' : 'checked ' . e(time_ago((string) $live['checked_at'])) ?>
-    <?= !empty($live['stale']) ? ' · last known reading — Epson did not answer' : '' ?>
-</p>
-
-<div class="stats-grid is-stacked">
-    <?php stat_card('Printer (Epson)', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
-</div>
 
 <div class="settings-layout">
     <div class="stack">

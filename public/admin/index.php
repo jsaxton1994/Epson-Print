@@ -372,10 +372,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             </p>
         </div>
     </div>
-    <p class="device-detail">
-        <strong><?= e((string) $printerReading['label']) ?></strong>
-        <?= e((string) $printerReading['detail']) ?>
-    </p>
     <div class="device-meta">
         <span class="device-chip"><?= icon('image') ?> Photo mode</span>
         <span class="device-chip"><?= icon('droplet') ?> 4-colour EcoTank</span>
@@ -418,6 +414,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         </div>
     </div>
     <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
+    <?php stat_card('Printer (Epson)', (string) $printerReading['label'], 'printer', 'brand', (string) $printerReading['detail']); ?>
 </div>
 
 <?php if ($attention['count'] > 0): ?>
