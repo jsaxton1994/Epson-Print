@@ -71,6 +71,22 @@ app_start('admin', 'site-settings', 'Site Settings', 'The name this site shows a
 
     <div class="stack">
         <section class="panel">
+            <div class="panel-head"><h3>Storage</h3></div>
+            <div class="panel-body">
+                <div class="summary-list">
+                    <div class="summary-row"><span>Driver</span><strong><?= e(strtoupper(db_driver())) ?></strong></div>
+                    <div class="summary-row"><span>Photos per order</span><strong><?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
+                    <div class="summary-row"><span>Photos per batch</span><strong><?= (int) MAX_PHOTOS_PER_BATCH ?></strong></div>
+                    <div class="summary-row"><span>Upload limit</span><strong><?= e(MAX_UPLOAD_MB) ?> MB each</strong></div>
+                    <div class="summary-row"><span>Order storage cap</span><strong><?= order_storage_limit_bytes() !== null ? e(human_size(order_storage_limit_bytes())) : 'No cap' ?></strong></div>
+                    <div class="summary-row"><span>Database size</span><strong><?= e(human_size(database_size_bytes())) ?></strong></div>
+                    <div class="summary-row"><span>Price per order</span><strong>Free</strong></div>
+                </div>
+                <p class="help">Photos are stored as BLOBs inside the database, not as files on disk. Large orders are added in batches and capped so one order cannot grow without bound.</p>
+            </div>
+        </section>
+
+        <section class="panel">
             <div class="panel-head"><h3>Where these appear</h3></div>
             <div class="panel-body">
                 <ul class="check-list" style="gap:12px">

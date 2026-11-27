@@ -97,6 +97,24 @@ if (is_post()) {
         flash('success', 'New bridge token created. Copy it now — only its hash is stored, so it cannot be shown again.');
         redirect('admin/printer-settings.php');
     }
+
+    if ($action === 'test_connection') {
+        // Diagnostics: one request with the fail-fast circuit skipped.
+        @set_time_limit(60);
+        $epson->bypassCircuit = true;
+        $started = microtime(true);
+
+        try {
+            $device = $epson->deviceInfo();
+            $ms     = (int) round((microtime(true) - $started) * 1000);
+            flash('success', 'Epson answered in ' . $ms . ' ms.' . (!empty($device['connected']) ? ' The printer is linked.' : ' The printer is not reporting as connected.'));
+        } catch (EpsonException $e) {
+            $ms = (int) round((microtime(true) - $started) * 1000);
+            flash('error', 'Epson did not answer after ' . $ms . ' ms: ' . $e->getMessage());
+        }
+
+        redirect('admin/printer-settings.php');
+    }
 }
 
 $epsonFresh = EpsonClient::fromSettings();
@@ -105,92 +123,30 @@ $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
 // This page asks Epson every time it opens, and keeps the last reading marked
 // stale if Epson does not answer, so a timeout never blanks the cards.
 $live       = printer_live_status_fresh($epsonFresh);
-$hold       = printer_supply_block();
 
 $inkTokenOnce    = (string) ($_SESSION['ink_token_once'] ?? '');
 unset($_SESSION['ink_token_once']);
 $inkFeedUrl      = absolute_url('printer-ink.php');
 $inkTokenCreated = (string) setting('ink_token_created_at', '');
 
-// Ink levels come from the shop-network SNMP bridge; Epson Connect API v2 only
-// returns the model, serial and link state. The reading keeps its age, and one
-// that is too old says so instead of passing for live.
-$ink      = printer_ink_reading();
-$inkTone  = 'brand';
-$inkValue = 'Levels not reported';
-$inkHint  = 'Epson Connect publishes no tank levels. Run tools/ink-bridge.php on a machine on the shop network and connect it in the Ink bridge panel below.';
+$epsonStats     = epson_request_stats();
+$circuitLeft    = epson_circuit_seconds();
+$epsonOutage    = epson_outage_state();
+$recentRequests = epson_recent_requests(8);
+$successRate    = (int) $epsonStats['total'] > 0
+    ? (int) round((1 - ((int) $epsonStats['failed'] / (int) $epsonStats['total'])) * 100)
+    : null;
+$edgePins       = array_values(array_unique(array_filter([
+    epson_edge_ip('auth.epsonconnect.com'),
+    epson_edge_ip('api.epsonconnect.com'),
+])));
 
-if ($ink['has_readings']) {
-    $inkValue = 'Lowest: ' . ucfirst((string) $ink['lowest_colour']) . ' ' . $ink['lowest'] . '%';
-    $inkHint  = 'SNMP (printer)'
-        . ($ink['model'] !== '' ? ' · ' . $ink['model'] : '')
-        . ' · read ' . time_ago((string) $ink['received_at'])
-        . ($ink['stale'] ? ' — stale: the bridge has not posted since' : '');
+// The bridge panel lists what was last posted; the ink and paper cards live on
+// the dashboard.
+$ink = printer_ink_reading();
 
-    if ($ink['lowest'] <= PRINTER_INK_LOW_PERCENT) {
-        $inkTone = 'amber';
-    }
-}
-
-if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
-    $inkTone  = 'amber';
-    $inkValue = 'Empty — refill';
-    $inkHint  = 'The printer reported empty ink ' . ($hold['since'] !== '' ? time_ago($hold['since']) : 'just now') . '; nothing new is sent until the hold is cleared.';
-}
-
-$paperTone  = 'brand';
-$paperValue = 'Ready';
-$paperHint  = 'Photo paper loaded; the queue is sending sheets.';
-
-if ($hold['active'] && in_array($hold['reason'], ['media_empty', 'media_jam'], true)) {
-    $paperTone  = 'amber';
-    $paperValue = $hold['reason'] === 'media_jam' ? 'Paper jam' : 'Out of paper';
-    $paperHint  = 'The queue has been held ' . ($hold['since'] !== '' ? time_ago($hold['since']) : 'just now') . ' until the printer is loaded and the hold is cleared.';
-}
-
-app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, its ink and paper state, and the credentials behind the link.');
+app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926 link, the ink bridge and the credentials behind them.');
 ?>
-
-<div class="device-card">
-    <div class="device-top">
-        <span class="device-label">Epson Connect</span>
-        <?php if ($epsonFresh->isConnected()): ?>
-            <span class="device-state"><span class="status-dot"></span> Linked</span>
-        <?php else: ?>
-            <span class="device-state is-off">Not linked</span>
-        <?php endif; ?>
-    </div>
-    <div class="device-name">
-        <span class="device-icon"><?= icon('printer') ?></span>
-        <div>
-            <h3><?= e($epsonFresh->isConnected() ? $deviceName : EPSON_PRINTER_MODEL) ?></h3>
-            <p>
-                <?php if ($epsonFresh->isConnected()): ?>
-                    Serial <?= e(setting('epson_device_serial', '') !== '' ? (string) setting('epson_device_serial', '') : 'not reported') ?> · Connect v2
-                <?php else: ?>
-                    Authorise the printer to send jobs automatically
-                <?php endif; ?>
-            </p>
-        </div>
-    </div>
-    <div class="device-meta">
-        <span class="device-chip"><?= icon('image') ?> Photo mode</span>
-        <span class="device-chip"><?= icon('droplet') ?> 4-colour EcoTank</span>
-        <?php if (setting('accepting_orders', '1') === '1'): ?>
-            <span class="device-chip"><?= icon('check') ?> Queue open</span>
-        <?php else: ?>
-            <span class="device-chip"><?= icon('clock') ?> Queue paused</span>
-        <?php endif; ?>
-    </div>
-    <div class="device-actions">
-        <form method="post">
-            <?= csrf_field() ?>
-            <input type="hidden" name="action" value="refresh">
-            <button class="btn btn-sm btn-primary" type="submit"><?= icon('refresh') ?> Refresh printer state</button>
-        </form>
-        <a class="btn btn-sm" href="<?= e(url('admin/maintenance.php')) ?>"><?= icon('wrench') ?> Maintenance</a>
-    </div>
-</div>
 
 <p class="muted" style="font-size:.8rem;margin:10px 2px 18px">
     Epson Connect · <?= !empty($live['never_checked']) ? 'not checked yet' : 'checked ' . e(time_ago((string) $live['checked_at'])) ?>
@@ -199,23 +155,6 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
 
 <div class="stats-grid is-stacked">
     <?php stat_card('Printer (Epson)', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
-    <div class="stat-card tone-<?= e($inkTone) ?>">
-        <div class="stat-icon"><?= icon('droplet') ?></div>
-        <div class="stat-body">
-            <span class="stat-label">Ink</span>
-            <strong class="stat-value"><?= e($inkValue) ?></strong>
-            <div class="ink-tanks" role="group" aria-label="Ink tanks">
-                <?php foreach (INK_COLOURS as $colour): ?>
-                    <?php $level = $ink['levels'][$colour] ?? null; ?>
-                    <span class="ink-tank<?= $level === null ? ' is-unknown' : ($level <= PRINTER_INK_LOW_PERCENT ? ' is-low' : '') ?>">
-                        <span class="ink-swatch is-<?= e($colour) ?>"></span><?= e(ucfirst($colour)) ?><strong><?= $level === null ? '—' : e($level . '%') ?></strong>
-                    </span>
-                <?php endforeach; ?>
-            </div>
-            <span class="stat-hint"><?= e($inkHint) ?></span>
-        </div>
-    </div>
-    <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
 </div>
 
 <div class="settings-layout">
@@ -417,6 +356,77 @@ app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, i
                         <button class="copy-btn" type="button" data-copy="php ink-bridge.php --url <?= e($inkFeedUrl) ?> --token YOUR-TOKEN --host 192.168.1.42 --every 300">Copy</button>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div>
+                    <h3>Epson connection</h3>
+                    <p>Request health and recent attempts</p>
+                </div>
+                <form method="post" action="<?= e(url('admin/printer-settings.php')) ?>">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="test_connection">
+                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('bolt') ?> Test</button>
+                </form>
+            </div>
+            <div class="panel-body">
+                <div class="summary-list" style="margin:0 0 12px">
+                    <div class="summary-row"><span>State</span><strong><?= $circuitLeft > 0 ? 'Failing fast, retry in ' . $circuitLeft . ' s' : 'Calling Epson normally' ?></strong></div>
+                    <div class="summary-row"><span>Epson edge</span><strong><?= $edgePins === [] ? 'Automatic (DNS)' : e(implode(', ', $edgePins)) . ' (pinned)' ?></strong></div>
+                    <div class="summary-row"><span>Requests / failures</span><strong><?= (int) $epsonStats['total'] ?> / <?= (int) $epsonStats['failed'] ?><?= $successRate !== null ? ' · ' . $successRate . '% ok' : '' ?></strong></div>
+                    <div class="summary-row"><span>Consecutive failures</span><strong><?= (int) $epsonStats['consecutive'] ?></strong></div>
+                    <div class="summary-row"><span>Outage</span><strong><?= $epsonOutage['active']
+                        ? e(epson_outage_summary($epsonOutage))
+                        : ($epsonOutage['recovered_at'] !== ''
+                            ? 'Recovered ' . e(time_ago((string) $epsonOutage['recovered_at']))
+                                . ($epsonOutage['last_duration'] !== null ? ' after ' . max(1, (int) floor($epsonOutage['last_duration'] / 60)) . ' min' : '')
+                            : 'None logged') ?></strong></div>
+                    <div class="summary-row"><span>Last success</span><strong><?= $epsonStats['last_ok_at'] !== '' ? e(time_ago((string) $epsonStats['last_ok_at'])) : 'None yet' ?></strong></div>
+                </div>
+
+                <?php if ($recentRequests === []): ?>
+                    <p class="muted" style="margin:0">No Epson requests logged yet. The next queue run fills this in.</p>
+                <?php else: ?>
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Time</th><th>Request</th><th>Result</th><th>Total</th></tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentRequests as $entry): ?>
+                                    <?php $entryAt = strtotime((string) $entry['at']) ?: time(); ?>
+                                    <tr>
+                                        <td class="muted"><?= e(date('H:i:s', $entryAt)) ?></td>
+                                        <td><?= e((string) $entry['path']) ?></td>
+                                        <td><?= !empty($entry['ok']) ? 'OK' : 'cURL ' . (int) $entry['errno'] ?></td>
+                                        <td><?= (int) $entry['total_ms'] ?> ms</td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($epsonOutage['active']): ?>
+                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
+                        Send failures are retried inside the same worker run, so printing restarts by itself when the connection returns.
+                        <?php if ($epsonOutage['alerted_at'] !== ''): ?>
+                            Alert emailed <?= e(time_ago((string) $epsonOutage['alerted_at'])) ?> to <?= e(queue_alert_recipient()) ?>;
+                            it repeats every <?= (int) EPSON_OUTAGE_REMINDER_MINUTES ?> minutes and once more when Epson is back.
+                        <?php else: ?>
+                            An alert email goes out after <?= (int) EPSON_OUTAGE_ALERT_MINUTES ?> minutes with orders waiting.
+                        <?php endif; ?>
+                    </p>
+                <?php endif; ?>
+
+                <?php if ($epsonStats['last_error'] !== ''): ?>
+                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
+                        Last error <?= e(time_ago((string) $epsonStats['last_error_at'])) ?>:
+                        <?= e((string) $epsonStats['last_error']) ?>
+                    </p>
+                <?php endif; ?>
             </div>
         </section>
     </div>

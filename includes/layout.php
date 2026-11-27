@@ -211,7 +211,7 @@ function app_start(string $role, string $active, string $title, string $subtitle
             'orders'    => ['label' => 'Orders', 'href' => 'admin/orders.php', 'icon' => 'layers'],
             'customers' => ['label' => 'Customers', 'href' => 'admin/customers.php', 'icon' => 'users'],
             'maintenance' => ['label' => 'Maintenance', 'href' => 'admin/maintenance.php', 'icon' => 'wrench'],
-            'information' => ['label' => 'Information', 'href' => 'admin/information.php', 'icon' => 'tiro'],
+            'service-stats' => ['label' => 'Service Stats', 'href' => 'admin/service-stats.php', 'icon' => 'tiro'],
         ]
         : [
             'dashboard' => ['label' => 'Dashboard', 'href' => 'customer/index.php', 'icon' => 'home'],

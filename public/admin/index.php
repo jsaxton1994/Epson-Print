@@ -10,6 +10,22 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 $admin = require_admin();
 $epson = EpsonClient::fromSettings();
 
+if (is_post()) {
+    verify_csrf();
+
+    if (input('action') === 'printer_refresh') {
+        $fresh = printer_live_status_fresh($epson);
+
+        if (($fresh['state'] ?? '') === 'unreachable') {
+            flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
+        } else {
+            flash('info', 'Printer state refreshed.');
+        }
+
+        redirect('admin/index.php');
+    }
+}
+
 $counts = db_one(
     "SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
             COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
@@ -101,6 +117,43 @@ if (!empty($printerReading['never_checked'])) {
 
 $printingHint .= ' — ' . $epsonHint;
 
+// Ink and paper status at a glance. Ink comes from the SNMP bridge reading and
+// paper from the printer's last reported stop; neither costs an Epson call.
+$supplyHold = printer_supply_block();
+$ink        = printer_ink_reading();
+
+$inkTone  = 'brand';
+$inkValue = 'Levels not reported';
+$inkHint  = 'Epson Connect publishes no tank levels. Connect the SNMP ink bridge in Printer Settings to fill these.';
+
+if ($ink['has_readings']) {
+    $inkValue = 'Lowest: ' . ucfirst((string) $ink['lowest_colour']) . ' ' . $ink['lowest'] . '%';
+    $inkHint  = 'SNMP (printer)'
+        . ($ink['model'] !== '' ? ' · ' . $ink['model'] : '')
+        . ' · read ' . time_ago((string) $ink['received_at'])
+        . ($ink['stale'] ? ' — stale: the bridge has not posted since' : '');
+
+    if ($ink['lowest'] <= PRINTER_INK_LOW_PERCENT) {
+        $inkTone = 'amber';
+    }
+}
+
+if ($supplyHold['active'] && $supplyHold['reason'] === 'marker_supply_empty') {
+    $inkTone  = 'amber';
+    $inkValue = 'Empty — refill';
+    $inkHint  = 'The printer reported empty ink ' . ($supplyHold['since'] !== '' ? time_ago($supplyHold['since']) : 'just now') . '; nothing new is sent until the hold is cleared.';
+}
+
+$paperTone  = 'brand';
+$paperValue = 'Ready';
+$paperHint  = 'Photo paper loaded; the queue is sending sheets.';
+
+if ($supplyHold['active'] && in_array($supplyHold['reason'], ['media_empty', 'media_jam'], true)) {
+    $paperTone  = 'amber';
+    $paperValue = $supplyHold['reason'] === 'media_jam' ? 'Paper jam' : 'Out of paper';
+    $paperHint  = 'The queue has been held ' . ($supplyHold['since'] !== '' ? time_ago($supplyHold['since']) : 'just now') . ' until the printer is loaded and the hold is cleared.';
+}
+
 $recent = db_all(
     "SELECT o.*, u.name AS customer, {$photoSelect}
      FROM orders o JOIN users u ON u.id = o.user_id
@@ -135,7 +188,6 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     </div>
 <?php endif; ?>
 
-<?php $supplyHold = printer_supply_block(); ?>
 <?php if ($supplyHold['active']): ?>
     <div class="banner banner-danger">
         <?= icon('alert') ?>
@@ -226,7 +278,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                 <?php else: ?>
                     An alert email goes out after <?= (int) EPSON_OUTAGE_ALERT_MINUTES ?> minutes.
                 <?php endif; ?>
-                <a href="<?= e(url('admin/maintenance.php')) ?>">Epson connection details</a>.
+                <a href="<?= e(url('admin/printer-settings.php')) ?>">Epson connection details</a>.
             </p>
         </div>
     </div>
@@ -271,6 +323,76 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         </div>
     </div>
 <?php endif; ?>
+
+<div class="device-card">
+    <div class="device-top">
+        <span class="device-label">Epson Connect</span>
+        <?php if ($epson->isConnected()): ?>
+            <span class="device-state"><span class="status-dot"></span> Linked</span>
+        <?php else: ?>
+            <span class="device-state is-off">Not linked</span>
+        <?php endif; ?>
+    </div>
+    <div class="device-name">
+        <span class="device-icon"><?= icon('printer') ?></span>
+        <div>
+            <h3><?= e($epson->isConnected() ? $epson->deviceName() : EPSON_PRINTER_MODEL) ?></h3>
+            <p>
+                <?php if ($epson->isConnected()): ?>
+                    Serial <?= e(setting('epson_device_serial', '') !== '' ? (string) setting('epson_device_serial', '') : 'not reported') ?> · Connect v2
+                <?php else: ?>
+                    Authorise the printer to send jobs automatically
+                <?php endif; ?>
+            </p>
+        </div>
+    </div>
+    <p class="device-detail">
+        <strong><?= e((string) $printerReading['label']) ?></strong>
+        <?= e((string) $printerReading['detail']) ?>
+    </p>
+    <div class="device-meta">
+        <span class="device-chip"><?= icon('image') ?> Photo mode</span>
+        <span class="device-chip"><?= icon('droplet') ?> 4-colour EcoTank</span>
+        <?php if (setting('accepting_orders', '1') === '1'): ?>
+            <span class="device-chip"><?= icon('check') ?> Queue open</span>
+        <?php else: ?>
+            <span class="device-chip"><?= icon('clock') ?> Queue paused</span>
+        <?php endif; ?>
+    </div>
+    <div class="device-actions">
+        <form method="post">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="printer_refresh">
+            <button class="btn btn-sm btn-primary" type="submit"><?= icon('refresh') ?> Refresh printer state</button>
+        </form>
+        <a class="btn btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('printer') ?> Printer settings</a>
+    </div>
+</div>
+
+<p class="muted" style="font-size:.8rem;margin:10px 2px 18px">
+    Epson Connect · <?= !empty($printerReading['never_checked']) ? 'not checked yet' : 'checked ' . e(time_ago((string) $printerReading['checked_at'])) ?>
+    <?= !empty($printerReading['stale']) ? ' · last known reading — press Refresh to ask Epson' : '' ?>
+</p>
+
+<div class="stats-grid is-stacked">
+    <div class="stat-card tone-<?= e($inkTone) ?>">
+        <div class="stat-icon"><?= icon('droplet') ?></div>
+        <div class="stat-body">
+            <span class="stat-label">Ink</span>
+            <strong class="stat-value"><?= e($inkValue) ?></strong>
+            <div class="ink-tanks" role="group" aria-label="Ink tanks">
+                <?php foreach (INK_COLOURS as $colour): ?>
+                    <?php $level = $ink['levels'][$colour] ?? null; ?>
+                    <span class="ink-tank<?= $level === null ? ' is-unknown' : ($level <= PRINTER_INK_LOW_PERCENT ? ' is-low' : '') ?>">
+                        <span class="ink-swatch is-<?= e($colour) ?>"></span><?= e(ucfirst($colour)) ?><strong><?= $level === null ? '—' : e($level . '%') ?></strong>
+                    </span>
+                <?php endforeach; ?>
+            </div>
+            <span class="stat-hint"><?= e($inkHint) ?></span>
+        </div>
+    </div>
+    <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
+</div>
 
 <?php if ($attention['count'] > 0): ?>
 <section class="panel">
@@ -417,8 +539,8 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <li><?= icon('layers') ?><span><a href="<?= e(url('admin/orders.php?status=accepted')) ?>">Automatic print queue</a></span></li>
                     <li><?= icon('clock') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">New orders awaiting acceptance</a></span></li>
                     <li><?= icon('users') ?><span><a href="<?= e(url('admin/customers.php')) ?>">Customer directory</a></span></li>
-                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/service-settings.php')) ?>">Service settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
-                    <li><?= icon('tiro') ?><span><a href="<?= e(url('admin/information.php')) ?>">Queue monitoring, storage &amp; service health</a></span></li>
+                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/site-settings.php')) ?>">Site settings</a> · <a href="<?= e(url('admin/service-settings.php')) ?>">service settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
+                    <li><?= icon('tiro') ?><span><a href="<?= e(url('admin/service-stats.php')) ?>">Queue monitoring, printer &amp; service health</a></span></li>
                 </ul>
             </div>
         </section>

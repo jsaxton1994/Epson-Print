@@ -13,7 +13,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../includes/bootstrap.php';
 
 $admin = require_admin();
-$epson = EpsonClient::fromSettings();
 
 if (is_post()) {
     verify_csrf();
@@ -37,55 +36,12 @@ if (is_post()) {
         redirect('admin/maintenance.php');
     }
 
-    if ($action === 'refresh') {
-        @set_time_limit(60);
-        set_setting('printer_status_cache', '');
-
-        $fresh = printer_live_status($epson);
-
-        if (($fresh['state'] ?? '') === 'unreachable') {
-            flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
-        } else {
-            flash('info', 'Printer status refreshed.');
-        }
-
-        redirect('admin/maintenance.php');
-    }
-
-    if ($action === 'test_connection') {
-        // Diagnostics: one request with the fail-fast circuit skipped.
-        @set_time_limit(60);
-        $epson->bypassCircuit = true;
-        $started = microtime(true);
-
-        try {
-            $device = $epson->deviceInfo();
-            $ms     = (int) round((microtime(true) - $started) * 1000);
-            flash('success', 'Epson answered in ' . $ms . ' ms.' . (!empty($device['connected']) ? ' The printer is linked.' : ' The printer is not reporting as connected.'));
-        } catch (EpsonException $e) {
-            $ms = (int) round((microtime(true) - $started) * 1000);
-            flash('error', 'Epson did not answer after ' . $ms . ' ms: ' . $e->getMessage());
-        }
-
-        redirect('admin/maintenance.php');
-    }
 }
 
-$pause       = printing_pause_info();
-$supplyHold  = printer_supply_block();
-$health = queue_health();
-$status = printer_live_status($epson, false);
-
-$epsonStats    = epson_request_stats();
-$circuitLeft   = epson_circuit_seconds();
-$epsonOutage   = epson_outage_state();
-$recentRequests = epson_recent_requests(8);
-$successRate   = (int) $epsonStats['total'] > 0
-    ? (int) round((1 - ((int) $epsonStats['failed'] / (int) $epsonStats['total'])) * 100)
-    : null;
+$pause      = printing_pause_info();
+$supplyHold = printer_supply_block();
 
 $pendingPhotos = (int) db_val("SELECT COUNT(*) FROM order_photos WHERE status = 'pending'");
-$waitingOrders = (int) $health['queued'];
 
 app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and look after the printer between jobs.');
 ?>
@@ -200,113 +156,6 @@ app_start('admin', 'maintenance', 'Printer maintenance', 'Pause the queue and lo
     </div>
 
     <div class="stack">
-        <section class="panel">
-            <div class="panel-head">
-                <div>
-                    <h3>Printer right now</h3>
-                    <p>
-                        <?= !empty($status['never_checked']) ? 'Not checked yet' : 'Last checked ' . e(time_ago((string) $status['checked_at'])) ?><?= !empty($status['stale']) ? ' · cached while Epson is unreachable' : '' ?>
-                    </p>
-                </div>
-                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="refresh">
-                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Refresh</button>
-                </form>
-            </div>
-            <div class="panel-body">
-                <div class="summary-list" style="margin:0">
-                    <div class="summary-row"><span>Status</span><strong><?= e($status['label']) ?></strong></div>
-                    <div class="summary-row"><span>Detail</span><strong style="text-align:right"><?= e($status['detail']) ?></strong></div>
-                    <?php if (!empty($status['order_reference'])): ?>
-                        <div class="summary-row"><span>Order on printer</span><strong><?= e((string) $status['order_reference']) ?></strong></div>
-                    <?php endif; ?>
-                    <?php if (isset($status['connected'])): ?>
-                        <div class="summary-row"><span>Linked to Epson Connect</span><strong><?= $status['connected'] ? 'Yes' : 'No' ?></strong></div>
-                    <?php endif; ?>
-                    <div class="summary-row"><span>Paper / ink hold</span><strong><?= $supplyHold['active'] ? e($supplyHold['label']) : 'None' ?></strong></div>
-                    <div class="summary-row"><span>Waiting orders</span><strong><?= $waitingOrders ?></strong></div>
-                    <div class="summary-row"><span>Photos waiting</span><strong><?= $pendingPhotos ?></strong></div>
-                </div>
-            </div>
-        </section>
-
-        <section class="panel">
-            <div class="panel-head">
-                <div>
-                    <h3>Epson connection</h3>
-                    <p>Request health and recent attempts</p>
-                </div>
-                <form method="post" action="<?= e(url('admin/maintenance.php')) ?>">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="test_connection">
-                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('bolt') ?> Test</button>
-                </form>
-            </div>
-            <div class="panel-body">
-                <div class="summary-list" style="margin:0 0 12px">
-                    <div class="summary-row"><span>State</span><strong><?= $circuitLeft > 0 ? 'Failing fast, retry in ' . $circuitLeft . ' s' : 'Calling Epson normally' ?></strong></div>
-                    <div class="summary-row"><span>Epson edge</span><strong><?php
-                        $edgePins = array_values(array_unique(array_filter([
-                            epson_edge_ip('auth.epsonconnect.com'),
-                            epson_edge_ip('api.epsonconnect.com'),
-                        ])));
-                        ?><?= $edgePins === [] ? 'Automatic (DNS)' : e(implode(', ', $edgePins)) . ' (pinned)' ?></strong></div>
-                    <div class="summary-row"><span>Requests / failures</span><strong><?= (int) $epsonStats['total'] ?> / <?= (int) $epsonStats['failed'] ?><?= $successRate !== null ? ' · ' . $successRate . '% ok' : '' ?></strong></div>
-                    <div class="summary-row"><span>Consecutive failures</span><strong><?= (int) $epsonStats['consecutive'] ?></strong></div>
-                    <div class="summary-row"><span>Outage</span><strong><?= $epsonOutage['active']
-                        ? e(epson_outage_summary($epsonOutage))
-                        : ($epsonOutage['recovered_at'] !== ''
-                            ? 'Recovered ' . e(time_ago((string) $epsonOutage['recovered_at']))
-                                . ($epsonOutage['last_duration'] !== null ? ' after ' . max(1, (int) floor($epsonOutage['last_duration'] / 60)) . ' min' : '')
-                            : 'None logged') ?></strong></div>
-                    <div class="summary-row"><span>Last success</span><strong><?= $epsonStats['last_ok_at'] !== '' ? e(time_ago((string) $epsonStats['last_ok_at'])) : 'None yet' ?></strong></div>
-                </div>
-
-                <?php if ($recentRequests === []): ?>
-                    <p class="muted" style="margin:0">No Epson requests logged yet. The next queue run fills this in.</p>
-                <?php else: ?>
-                    <div class="table-wrap">
-                        <table class="table">
-                            <thead>
-                                <tr><th>Time</th><th>Request</th><th>Result</th><th>Total</th></tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($recentRequests as $entry): ?>
-                                    <?php $entryAt = strtotime((string) $entry['at']) ?: time(); ?>
-                                    <tr>
-                                        <td class="muted"><?= e(date('H:i:s', $entryAt)) ?></td>
-                                        <td><?= e((string) $entry['path']) ?></td>
-                                        <td><?= !empty($entry['ok']) ? 'OK' : 'cURL ' . (int) $entry['errno'] ?></td>
-                                        <td><?= (int) $entry['total_ms'] ?> ms</td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-
-                <?php if ($epsonOutage['active']): ?>
-                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
-                        Send failures are retried inside the same worker run, so printing restarts by itself when the connection returns.
-                        <?php if ($epsonOutage['alerted_at'] !== ''): ?>
-                            Alert emailed <?= e(time_ago((string) $epsonOutage['alerted_at'])) ?> to <?= e(queue_alert_recipient()) ?>;
-                            it repeats every <?= (int) EPSON_OUTAGE_REMINDER_MINUTES ?> minutes and once more when Epson is back.
-                        <?php else: ?>
-                            An alert email goes out after <?= (int) EPSON_OUTAGE_ALERT_MINUTES ?> minutes with orders waiting.
-                        <?php endif; ?>
-                    </p>
-                <?php endif; ?>
-
-                <?php if ($epsonStats['last_error'] !== ''): ?>
-                    <p class="muted" style="margin:12px 0 0;font-size:.78rem">
-                        Last error <?= e(time_ago((string) $epsonStats['last_error_at'])) ?>:
-                        <?= e((string) $epsonStats['last_error']) ?>
-                    </p>
-                <?php endif; ?>
-            </div>
-        </section>
-
         <section class="panel">
             <div class="panel-head">
                 <div>
