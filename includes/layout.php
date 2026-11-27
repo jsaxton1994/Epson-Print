@@ -23,6 +23,7 @@ function icon(string $name, string $class = ''): string
         'search'     => '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
         'file'       => '<path d="M14 3.5H7A2 2 0 0 0 5 5.5v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5l-5-5Z"/><path d="M14 3.5v5h5"/>',
         'image'      => '<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><circle cx="9" cy="10" r="1.7"/><path d="m4 17.5 4.5-4.5L12 16l3.2-3.2L20 17.5"/>',
+        'droplet'    => '<path d="M12 3.2c3.3 3.8 5.6 6.6 5.6 9.5a5.6 5.6 0 1 1-11.2 0c0-2.9 2.3-5.7 5.6-9.5Z"/>',
         'arrow-right'=> '<path d="M4.5 12h15"/><path d="m13.5 6 6 6-6 6"/>',
         'arrow-left' => '<path d="M19.5 12h-15"/><path d="m10.5 6-6 6 6 6"/>',
         'chevron-down' => '<path d="m6 9.5 6 6 6-6"/>',
@@ -210,7 +211,6 @@ function app_start(string $role, string $active, string $title, string $subtitle
             'orders'    => ['label' => 'Orders', 'href' => 'admin/orders.php', 'icon' => 'layers'],
             'customers' => ['label' => 'Customers', 'href' => 'admin/customers.php', 'icon' => 'users'],
             'maintenance' => ['label' => 'Maintenance', 'href' => 'admin/maintenance.php', 'icon' => 'wrench'],
-            'settings'  => ['label' => 'Settings', 'href' => 'admin/settings.php', 'icon' => 'gear'],
         ]
         : [
             'dashboard' => ['label' => 'Dashboard', 'href' => 'customer/index.php', 'icon' => 'home'],
@@ -218,6 +218,15 @@ function app_start(string $role, string $active, string $title, string $subtitle
             'orders'    => ['label' => 'My orders', 'href' => 'customer/orders.php', 'icon' => 'layers'],
             'profile'   => ['label' => 'Profile', 'href' => 'customer/profile.php', 'icon' => 'users'],
         ];
+
+    $settingsItems = $isAdmin
+        ? [
+            'site-settings'    => ['label' => 'Site Settings', 'href' => 'admin/site-settings.php', 'icon' => 'leaf'],
+            'service-settings' => ['label' => 'Service Settings', 'href' => 'admin/service-settings.php', 'icon' => 'gear'],
+            'printer-settings' => ['label' => 'Printer Settings', 'href' => 'admin/printer-settings.php', 'icon' => 'printer'],
+            'backup-settings'  => ['label' => 'Backup Settings', 'href' => 'admin/backup-settings.php', 'icon' => 'download'],
+        ]
+        : [];
 
     ?>
 <!doctype html>
@@ -250,6 +259,16 @@ function app_start(string $role, string $active, string $title, string $subtitle
                     <?php if ($active === $key): ?><span class="side-dot"></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
+
+            <?php if ($settingsItems !== []): ?>
+                <div class="side-group">Settings</div>
+                <?php foreach ($settingsItems as $key => $item): ?>
+                    <a class="side-link <?= $active === $key ? 'is-active' : '' ?>" href="<?= e(url($item['href'])) ?>">
+                        <?= icon($item['icon']) ?><span><?= e($item['label']) ?></span>
+                        <?php if ($active === $key): ?><span class="side-dot"></span><?php endif; ?>
+                    </a>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </nav>
 
         <div class="sidebar-foot">

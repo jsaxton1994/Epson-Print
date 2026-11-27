@@ -1063,7 +1063,7 @@ function printer_live_status_now(?EpsonClient $epson = null): array
     $status = [
         'state'           => 'not_set_up',
         'label'           => 'Not set up',
-        'detail'          => 'Add Epson Connect credentials in Settings to monitor the printer.',
+        'detail'          => 'Add Epson Connect credentials in Printer Settings to monitor the printer.',
         'order_id'        => null,
         'order_url'       => null,
         'order_reference' => null,
@@ -1088,7 +1088,7 @@ function printer_live_status_now(?EpsonClient $epson = null): array
         return array_merge($status, [
             'state'  => 'not_linked',
             'label'  => 'Not linked',
-            'detail' => 'Authorise the printer in Settings → Epson Connect.',
+            'detail' => 'Authorise the printer in Printer Settings.',
         ]);
     }
 

@@ -1,12 +1,12 @@
 <?php
 /**
- * Service settings, Epson Connect credentials and admin account.
+ * Printer Settings: the ET-2926 link, its live ink/paper state, the Epson
+ * Connect credentials and the facts about the device.
  */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../includes/bootstrap.php';
-require_once __DIR__ . '/../../includes/backup.php';
 
 require_admin();
 $epson = EpsonClient::fromSettings();
@@ -17,28 +17,17 @@ if (is_post()) {
     verify_csrf();
     $action = input('action');
 
-    if ($action === 'service') {
-        $siteName   = mb_substr(input('site_name'), 0, 60);
-        $email      = input('support_email');
-        $alertEmail = input('queue_alert_email');
-        $paper      = input('default_paper_size');
-        $quality    = input('default_print_quality');
+    if ($action === 'refresh') {
+        set_setting('printer_status_cache', '');
+        $fresh = printer_live_status($epson);
 
-        set_setting('site_name', $siteName !== '' ? $siteName : APP_NAME);
-        set_setting('support_email', filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : (string) setting('support_email', ''));
-        set_setting('queue_alert_email', filter_var($alertEmail, FILTER_VALIDATE_EMAIL) ? $alertEmail : '');
-        set_setting('accepting_orders', isset($_POST['accepting_orders']) ? '1' : '0');
-        set_setting('default_paper_size', array_key_exists($paper, paper_size_options()) ? $paper : 'A4');
-        set_setting('default_print_quality', array_key_exists($quality, quality_options()) ? $quality : 'normal');
+        if (($fresh['state'] ?? '') === 'unreachable') {
+            flash('error', 'Epson did not answer: ' . (string) ($fresh['detail'] ?? 'connection failed'));
+        } else {
+            flash('info', 'Printer status refreshed.');
+        }
 
-        flash('success', 'Service settings saved.');
-        redirect('admin/settings.php');
-    }
-
-    if ($action === 'backup_run') {
-        $result = run_backup();
-        flash($result['ok'] ? 'success' : 'error', ($result['ok'] ? 'Backup stored: ' : 'Backup failed: ') . $result['note']);
-        redirect('admin/settings.php');
+        redirect('admin/printer-settings.php');
     }
 
     if ($action === 'epson') {
@@ -56,13 +45,13 @@ if (is_post()) {
         }
 
         flash('success', 'Epson credentials saved.');
-        redirect('admin/settings.php');
+        redirect('admin/printer-settings.php');
     }
 
     if ($action === 'connect') {
         if (!$epson->isConfigured()) {
             flash('error', 'Save your Client ID, Client Secret and API Key first.');
-            redirect('admin/settings.php');
+            redirect('admin/printer-settings.php');
         }
 
         $state = bin2hex(random_bytes(16));
@@ -74,7 +63,7 @@ if (is_post()) {
     if ($action === 'test') {
         if (!$epson->isConnected()) {
             flash('error', 'Link the printer first, then test the connection.');
-            redirect('admin/settings.php');
+            redirect('admin/printer-settings.php');
         }
 
         $epson->bypassCircuit = true;
@@ -95,91 +84,68 @@ if (is_post()) {
             flash('error', 'Epson test failed: ' . $e->getMessage());
         }
 
-        redirect('admin/settings.php');
+        redirect('admin/printer-settings.php');
     }
 
     if ($action === 'disconnect') {
         $epson->disconnect();
         flash('success', 'Printer unlinked. Credentials were kept so you can reconnect quickly.');
-        redirect('admin/settings.php');
+        redirect('admin/printer-settings.php');
     }
-
-
 }
 
 $epsonFresh = EpsonClient::fromSettings();
 $deviceName = $epsonFresh->deviceName();
 $redirect   = setting('epson_redirect_uri', '') ?: $defaultRedirect;
+$live       = printer_live_status($epsonFresh, false);
+$hold       = printer_supply_block();
 
-app_start('admin', 'settings', 'Settings', 'Service preferences and the Epson ET-2926 link.');
+// Ink and paper come from what the printer reports. Epson Connect API v2 only
+// returns the model, serial and link state, so a tank level is only shown when
+// the printer itself has flagged a stop.
+$inkTone  = 'brand';
+$inkValue = 'Not reported';
+$inkHint  = 'Epson Connect does not publish tank levels. Check the ink tanks on the printer or in Epson Smart Panel; printing holds itself if a job reports empty ink.';
+
+if ($hold['active'] && $hold['reason'] === 'marker_supply_empty') {
+    $inkTone  = 'amber';
+    $inkValue = 'Empty — refill';
+    $inkHint  = 'The printer reported empty ink ' . ($hold['since'] !== '' ? time_ago($hold['since']) : 'just now') . '; nothing new is sent until the hold is cleared.';
+}
+
+$paperTone  = 'brand';
+$paperValue = 'Ready';
+$paperHint  = 'Photo paper loaded; the queue is sending sheets.';
+
+if ($hold['active'] && in_array($hold['reason'], ['media_empty', 'media_jam'], true)) {
+    $paperTone  = 'amber';
+    $paperValue = $hold['reason'] === 'media_jam' ? 'Paper jam' : 'Out of paper';
+    $paperHint  = 'The queue has been held ' . ($hold['since'] !== '' ? time_ago($hold['since']) : 'just now') . ' until the printer is loaded and the hold is cleared.';
+}
+
+app_start('admin', 'printer-settings', 'Printer Settings', 'The Epson ET-2926, its ink and paper state, and the credentials behind the link.');
 ?>
+
+<div class="stats-grid">
+    <?php stat_card('Printer', (string) $live['label'], 'printer', 'brand', (string) $live['detail']); ?>
+    <?php stat_card('Ink', $inkValue, 'droplet', $inkTone, $inkHint); ?>
+    <?php stat_card('Paper', $paperValue, 'file', $paperTone, $paperHint); ?>
+</div>
+
+<div class="table-actions" style="justify-content:flex-start;margin:14px 0 20px">
+    <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="refresh">
+        <button class="btn btn-soft btn-sm" type="submit"><?= icon('refresh') ?> Refresh printer state</button>
+    </form>
+    <span class="muted" style="font-size:.82rem">
+        <?= !empty($live['never_checked']) ? 'Not checked yet' : 'Checked ' . e(time_ago((string) $live['checked_at'])) ?>
+        <?= !empty($live['stale']) ? ' · cached while Epson is unreachable' : '' ?>
+    </span>
+</div>
 
 <div class="settings-layout">
     <div class="stack">
-        <section class="panel">
-            <div class="panel-head">
-                <div>
-                    <h3>Service</h3>
-                    <p>Branding, defaults and whether the queue accepts new orders</p>
-                </div>
-            </div>
-            <div class="panel-body">
-                <form method="post">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="service">
-
-                    <div class="field-row">
-                        <div class="field">
-                            <label for="site_name">Site name</label>
-                            <input class="input" type="text" id="site_name" name="site_name" value="<?= e(site_name()) ?>" maxlength="60" required>
-                        </div>
-                        <div class="field">
-                            <label for="support_email">Support email</label>
-                            <input class="input" type="email" id="support_email" name="support_email" value="<?= e(setting('support_email', '')) ?>" maxlength="190" required>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <label for="queue_alert_email">Queue alert email</label>
-                        <input class="input" type="email" id="queue_alert_email" name="queue_alert_email"
-                               value="<?= e(setting('queue_alert_email', '')) ?>" maxlength="190"
-                               placeholder="<?= e(setting('support_email', '')) ?>">
-                        <p class="help">Where stalled-worker and stuck-order alerts go. Leave blank to use the support email, then an admin account.</p>
-                    </div>
-
-                    <div class="field-row">
-                        <div class="field">
-                            <label for="default_paper_size">Default paper</label>
-                            <select class="select" id="default_paper_size" name="default_paper_size">
-                                <?php foreach (paper_size_options() as $value => $label): ?>
-                                    <option value="<?= e($value) ?>" <?= setting('default_paper_size', 'A4') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label for="default_print_quality">Default quality</label>
-                            <select class="select" id="default_print_quality" name="default_print_quality">
-                                <?php foreach (quality_options() as $value => $label): ?>
-                                    <option value="<?= e($value) ?>" <?= setting('default_print_quality', 'normal') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                    </div>
-
-                    <label class="choice" style="max-width:520px">
-                        <input type="checkbox" name="accepting_orders" value="1" <?= setting('accepting_orders', '1') === '1' ? 'checked' : '' ?>>
-                        <span class="choice-dot"></span>
-                        <span class="choice-text">
-                            <strong>Accept new orders</strong>
-                            <span>Untick to pause the queue. Customers keep their history and can still sign in.</span>
-                        </span>
-                    </label>
-
-                    <button class="btn btn-primary mt-3" type="submit">Save service settings</button>
-                </form>
-            </div>
-        </section>
-
         <section class="panel">
             <div class="panel-head">
                 <div>
@@ -301,44 +267,6 @@ app_start('admin', 'settings', 'Settings', 'Service preferences and the Epson ET
     </div>
 
     <div class="stack">
-        <?php
-        $backupFolder = backup_directory();
-        $backupFiles  = backup_files();
-        ?>
-        <section class="panel">
-            <div class="panel-head">
-                <div>
-                    <h3>Backups</h3>
-                    <p>A nightly database dump kept on the host, outside the web root</p>
-                </div>
-            </div>
-            <div class="panel-body">
-                <div class="summary-list" style="margin:0 0 14px">
-                    <div class="summary-row"><span>Last backup</span><strong><?= setting('backup_last_run', '') !== '' ? e(time_ago((string) setting('backup_last_run'))) : 'Never' ?></strong></div>
-                    <div class="summary-row"><span>Result</span><strong><?= e(setting('backup_last_status', 'unknown') === 'ok' ? 'Stored' : ucfirst((string) setting('backup_last_status', 'unknown'))) ?></strong></div>
-                    <div class="summary-row"><span>File</span><strong class="mono"><?= e(setting('backup_last_file', '') !== '' ? (string) setting('backup_last_file', '') : '—') ?></strong></div>
-                    <div class="summary-row"><span>Size</span><strong><?= e(human_size((int) setting('backup_last_bytes', '0'))) ?> · <?= (int) setting('backup_last_rows', '0') ?> rows</strong></div>
-                    <div class="summary-row"><span>Folder</span><strong class="mono" style="text-align:right;word-break:break-all"><?= e($backupFolder['dir'] !== '' ? $backupFolder['dir'] : 'Not writable') ?></strong></div>
-                    <div class="summary-row"><span>Dumps kept</span><strong><?= count($backupFiles) ?> · newest <?= (int) BACKUP_KEEP_FILES ?></strong></div>
-                </div>
-
-                <?php if (setting('backup_last_note', '') !== ''): ?>
-                    <p class="help"><?= e((string) setting('backup_last_note', '')) ?></p>
-                <?php endif; ?>
-
-                <form method="post">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="backup_run">
-                    <button class="btn btn-soft btn-sm" type="submit"><?= icon('download') ?> Run a backup now</button>
-                </form>
-
-                <p class="help" style="margin-top:12px">
-                    Run <span class="mono">cron/backup.php</span> once a night from cPanel. Dumps are gzipped SQL without the photo BLOBs;
-                    restore with <span class="mono">gunzip</span> then <span class="mono">mysql db &lt; db-….sql</span>.
-                </p>
-            </div>
-        </section>
-
         <section class="panel">
             <div class="panel-head"><h3>Printer facts</h3></div>
             <div class="panel-body">
@@ -346,27 +274,15 @@ app_start('admin', 'settings', 'Settings', 'Service preferences and the Epson ET
                     <div class="profile-fact"><span>Model</span><strong><?= e(EPSON_PRINTER_MODEL) ?></strong></div>
                     <div class="profile-fact"><span>API</span><strong>Connect v2</strong></div>
                     <div class="profile-fact"><span>Device</span><strong><?= e($epsonFresh->isConnected() ? $deviceName : 'Not linked') ?></strong></div>
+                    <div class="profile-fact"><span>Serial</span><strong><?= e(setting('epson_device_serial', '') !== '' ? (string) setting('epson_device_serial', '') : '—') ?></strong></div>
                     <div class="profile-fact"><span>Queue</span><strong><?= setting('accepting_orders', '1') === '1' ? 'Open' : 'Paused' ?></strong></div>
                 </div>
-                <a class="btn btn-ghost btn-block btn-sm mt-3" href="https://developer.epsonconnect.com/" target="_blank" rel="noopener noreferrer">
+                <a class="btn btn-ghost btn-block btn-sm mt-3" href="<?= e(url('admin/maintenance.php')) ?>">
+                    <?= icon('wrench') ?> Head cleaning and maintenance
+                </a>
+                <a class="btn btn-ghost btn-block btn-sm mt-2" href="https://developer.epsonconnect.com/" target="_blank" rel="noopener noreferrer">
                     <?= icon('arrow-right') ?> Epson developer portal
                 </a>
-            </div>
-        </section>
-
-        <section class="panel">
-            <div class="panel-head"><h3>Storage</h3></div>
-            <div class="panel-body">
-                <div class="summary-list">
-                    <div class="summary-row"><span>Driver</span><strong><?= e(strtoupper(db_driver())) ?></strong></div>
-                    <div class="summary-row"><span>Photos per order</span><strong><?= (int) MAX_PHOTOS_PER_ORDER ?></strong></div>
-                    <div class="summary-row"><span>Photos per batch</span><strong><?= (int) MAX_PHOTOS_PER_BATCH ?></strong></div>
-                    <div class="summary-row"><span>Upload limit</span><strong><?= e(MAX_UPLOAD_MB) ?> MB each</strong></div>
-                    <div class="summary-row"><span>Order storage cap</span><strong><?= order_storage_limit_bytes() !== null ? e(human_size(order_storage_limit_bytes())) : 'No cap' ?></strong></div>
-                    <div class="summary-row"><span>Database size</span><strong><?= e(human_size(database_size_bytes())) ?></strong></div>
-                    <div class="summary-row"><span>Price per order</span><strong>Free</strong></div>
-                </div>
-                <p class="help">Photos are stored as BLOBs inside the database, not as files on disk. Large orders are added in batches and capped so one order cannot grow without bound.</p>
             </div>
         </section>
     </div>

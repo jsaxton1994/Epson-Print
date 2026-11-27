@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 
 $user = require_login();
 if ($user['role'] === 'admin') {
-    redirect('admin/settings.php');
+    redirect('admin/index.php');
 }
 
 $errors = [];

@@ -429,7 +429,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                     <strong>Some photos were rejected by the printer</strong>
                     <p><?= e($order['error_message']) ?></p>
                     <div class="banner-actions">
-                        <a class="btn btn-soft btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('gear') ?> Check Epson settings</a>
+                        <a class="btn btn-soft btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('printer') ?> Check printer settings</a>
                     </div>
                 </div>
             </div>
@@ -772,7 +772,7 @@ app_start('admin', 'orders', 'Order ' . $order['reference'], $count . ' photo' .
                 </div>
             </div>
             <div class="device-actions">
-                <a class="btn btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('gear') ?> Printer settings</a>
+                <a class="btn btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('printer') ?> Printer settings</a>
             </div>
         </div>
 

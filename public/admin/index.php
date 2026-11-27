@@ -113,7 +113,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <strong>Epson Connect is not set up yet</strong>
             <p>Add your Client ID, Client Secret and API Key, then link the ET-2926. Until then you can still review and manage photo orders; printing starts once the printer is linked.</p>
             <div class="banner-actions">
-                <a class="btn btn-primary btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('gear') ?> Open settings</a>
+                <a class="btn btn-primary btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('printer') ?> Open printer settings</a>
             </div>
         </div>
     </div>
@@ -124,7 +124,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
             <strong>Printer credentials saved — one link to go</strong>
             <p>Authorise <?= e(EPSON_PRINTER_MODEL) ?> from Settings so photo jobs can be sent without manual steps.</p>
             <div class="banner-actions">
-                <a class="btn btn-primary btn-sm" href="<?= e(url('admin/settings.php')) ?>"><?= icon('wifi') ?> Connect the printer</a>
+                <a class="btn btn-primary btn-sm" href="<?= e(url('admin/printer-settings.php')) ?>"><?= icon('wifi') ?> Connect the printer</a>
             </div>
         </div>
     </div>
@@ -238,7 +238,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
         <?= icon('alert') ?>
         <div>
             <strong>Accepted orders are waiting for a printer</strong>
-            <p><?= (int) $queueHealth['queued'] ?> order<?= $queueHealth['queued'] === 1 ? '' : 's' ?> cannot print until <?= e(EPSON_PRINTER_MODEL) ?> is linked. <a href="<?= e(url('admin/settings.php')) ?>">Connect the printer</a>.</p>
+            <p><?= (int) $queueHealth['queued'] ?> order<?= $queueHealth['queued'] === 1 ? '' : 's' ?> cannot print until <?= e(EPSON_PRINTER_MODEL) ?> is linked. <a href="<?= e(url('admin/printer-settings.php')) ?>">Connect the printer</a>.</p>
         </div>
     </div>
 <?php elseif ($queueHealth['queue_stalled']): ?>
@@ -472,8 +472,8 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                 <?php endif; ?>
             </div>
             <div class="device-actions">
-                <a class="btn btn-sm btn-primary" href="<?= e(url('admin/settings.php')) ?>">
-                    <?= icon('gear') ?> <?= $epson->isConnected() ? 'Printer settings' : 'Set up printing' ?>
+                <a class="btn btn-sm btn-primary" href="<?= e(url('admin/printer-settings.php')) ?>">
+                    <?= icon('printer') ?> <?= $epson->isConnected() ? 'Printer settings' : 'Set up printing' ?>
                 </a>
             </div>
         </div>
@@ -499,7 +499,7 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
                     <li><?= icon('layers') ?><span><a href="<?= e(url('admin/orders.php?status=accepted')) ?>">Automatic print queue</a></span></li>
                     <li><?= icon('clock') ?><span><a href="<?= e(url('admin/orders.php?status=pending')) ?>">New orders awaiting acceptance</a></span></li>
                     <li><?= icon('users') ?><span><a href="<?= e(url('admin/customers.php')) ?>">Customer directory</a></span></li>
-                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/settings.php')) ?>">Service &amp; printer settings</a></span></li>
+                    <li><?= icon('gear') ?><span><a href="<?= e(url('admin/service-settings.php')) ?>">Service settings</a> · <a href="<?= e(url('admin/printer-settings.php')) ?>">printer settings</a></span></li>
                 </ul>
             </div>
         </section>

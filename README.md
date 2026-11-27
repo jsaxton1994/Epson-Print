@@ -142,7 +142,7 @@ The watchdog emails when:
 - an accepted order has been waiting for more than 20 minutes without progress;
 - accepted orders are waiting while the printer is not linked.
 
-Alerts go to **Admin → Settings → Queue alert email**, falling back to the support email and then the first admin account. It sends one alert per incident, repeats at most hourly while the problem continues, and sends a recovery email when the queue is healthy again.
+Alerts go to **Admin → Site Settings → Queue alert email**, falling back to the support email and then the first admin account. It sends one alert per incident, repeats at most hourly while the problem continues, and sends a recovery email when the queue is healthy again.
 
 An order becomes `printing` as soon as its first photo is handed to the printer (not only when a photo finishes), so the dashboard's **Printing now** count shows the active order while the rest of it is still queued; the count also catches any order that has a photo in `printing` even if its status is stale. The card names that order and its position (`PF-TYAWD7 · photo 17 of 50`), read from the photo the worker has on the printer, so it advances by itself as sheets finish. The live queue list is ordered like the worker: printing first, then the order accepted longest ago.
 
@@ -172,7 +172,7 @@ The whole business — orders, customers, settings and every photo — lives in 
   >> /home/snapprin/backup.log 2>&1
 ```
 
-It writes a restorable SQL dump (schema and every table, with the `image_data`/`thumb_data` BLOB columns excluded, since the photos themselves are far too large to duplicate nightly) and gzips it into `backups/` beside `public_html` — outside the web root, so the files cannot be fetched over HTTP and a deploy that copies into `public_html` cannot overwrite them. The folder also gets an Apache `deny` file as a second line of defence, and only the newest `BACKUP_KEEP_FILES` (10) dumps are kept. **Admin → Settings → Backups** shows the last run, file, size, folder and how many dumps are held, and can run one on demand. Restore with `gunzip` + `mysql <db> < db-….sql`; the dump's header says what it does and does not contain.
+It writes a restorable SQL dump (schema and every table, with the `image_data`/`thumb_data` BLOB columns excluded, since the photos themselves are far too large to duplicate nightly) and gzips it into `backups/` beside `public_html` — outside the web root, so the files cannot be fetched over HTTP and a deploy that copies into `public_html` cannot overwrite them. The folder also gets an Apache `deny` file as a second line of defence, and only the newest `BACKUP_KEEP_FILES` (10) dumps are kept. **Admin → Backup Settings** shows the last run, file, size, folder and how many dumps are held, and can run one on demand. Restore with `gunzip` + `mysql <db> < db-….sql`; the dump's header says what it does and does not contain.
 
 ## Database
 
@@ -189,7 +189,7 @@ Printing runs through the Epson Connect API v2 (device authorisation, OAuth2).
 1. Register the printer with Epson Connect, then sign in at <https://developer.epsonconnect.com/>.
 2. Create an app and copy the **Client ID**, **Client Secret** and **API Key**.
 3. Add your Redirect URI to that app — the site shows the exact address on the settings page, typically `https://your-site.example/admin/epson-callback.php`.
-4. In **Admin → Settings → Epson Connect API v2**, paste the credentials and save.
+4. In **Admin → Printer Settings → Epson Connect API v2**, paste the credentials and save.
 5. Press **Connect Epson ET-2926**, sign in with your Epson account and pick the printer.
 6. Open any photo order and press **Accept & queue**; the cron worker uploads each photo as its own job, one sheet at a time. The page shows the job status and a manual **Send now** fallback that sends one photo per click.
 
@@ -205,12 +205,12 @@ Until the printer is linked, orders can still be accepted, managed and marked pr
 
 ## Customising
 
-- Site name, support email, default print size/quality and the queue pause switch: **Admin → Settings**. New orders default to **High** quality: on the ET-2926, Standard can leave faint banding lines on photo paper, so High is the right default for this service. An administrator can still lower it per order from the order page while it is unprinted.
+- Site name, support email and queue alert address: **Admin → Site Settings**. Default print size/quality and the queue pause switch: **Admin → Service Settings**. The Epson link, ink/paper state and printer facts: **Admin → Printer Settings**. Nightly dumps: **Admin → Backup Settings**. New orders default to **High** quality: on the ET-2926, Standard can leave faint banding lines on photo paper, so High is the right default for this service. An administrator can still lower it per order from the order page while it is unprinted.
 - An administrator can change an order's print quality from the order page while it is still unprinted (new, queued, printing or failed). The change is written to the order timeline; photos already sent to Epson keep the quality they were sent with, and everything sent afterwards uses the new one. Printed and cancelled orders keep the quality they were printed with.
 - Photos per order and per upload batch: `MAX_PHOTOS_PER_ORDER` (default 100) and `MAX_PHOTOS_PER_BATCH` (default 10) in `includes/config.php`. The browser chains batches automatically.
 - Per-photo upload limit: `MAX_UPLOAD_MB` in `includes/config.php` (Epson allows 10 MB for photo mode). The effective limit is the smaller of this and PHP's `upload_max_filesize` / `post_max_size`.
 - Status work: `STATUS_BATCH_MAX` and `STATUS_BATCH_SECONDS` in `includes/config.php`. One-at-a-time printing waits up to `PRINT_SEQUENTIAL_SECONDS` per cron run and polls the printer every `PRINT_POLL_SECONDS`.
-- Storage: photos live in the MySQL database as BLOBs, so the database grows with every upload. Each order is capped at `MAX_ORDER_STORAGE_MB` (default 5000 MB / 4.9 GB; `0` disables the cap). Photos are inserted one at a time; thumbnails are capped at a 480 px long edge and skipped for images above 30 MP or when GD is unavailable. Admin → Settings shows the current database size.
+- Storage: photos live in the MySQL database as BLOBs, so the database grows with every upload. Each order is capped at `MAX_ORDER_STORAGE_MB` (default 5000 MB / 4.9 GB; `0` disables the cap). Photos are inserted one at a time; thumbnails are capped at a 480 px long edge and skipped for images above 30 MP or when GD is unavailable. Admin → Service Settings shows the current database size.
 - Sessions: stored in the `sessions` table of the same database instead of PHP's per-instance files, so sign-in and CSRF checks stay valid when a host routes requests to several instances. The table is created automatically on existing installs and expired rows are pruned.
 - PHP limits: `public/.user.ini` and the LiteSpeed `lsapi_module` block in `.htaccess` request 12 MB per file and a 128 MB POST. The app still caps each photo at `MAX_UPLOAD_MB` (10 MB), and the UI shows whichever limit the server actually applies.
 - If PHP discards an oversized POST, the upload pages detect it and show a friendly "smaller batch" message instead of a CSRF error.

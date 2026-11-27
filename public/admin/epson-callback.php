@@ -18,20 +18,20 @@ unset($_SESSION['epson_state'], $_SESSION['epson_state_time']);
 // still bind the callback to this admin session and require a fresh handshake.
 if ($storedState === '' || ($state !== '' && !hash_equals($storedState, $state)) || (time() - $issuedAt) > 900) {
     flash('error', 'That Epson sign-in link has expired. Start the connection again from Settings.');
-    redirect('admin/settings.php');
+    redirect('admin/printer-settings.php');
 }
 
 if (!empty($_GET['error'])) {
     $reason = is_string($_GET['error']) ? $_GET['error'] : 'authorisation failed';
     flash('error', 'Epson returned an error: ' . $reason . '.');
-    redirect('admin/settings.php');
+    redirect('admin/printer-settings.php');
 }
 
 $code = (string) ($_GET['code'] ?? '');
 
 if ($code === '') {
     flash('error', 'Epson did not send an authorisation code. Please try again.');
-    redirect('admin/settings.php');
+    redirect('admin/printer-settings.php');
 }
 
 $epson = EpsonClient::fromSettings();
@@ -44,4 +44,4 @@ try {
     flash('error', 'Could not finish linking the printer: ' . $e->getMessage());
 }
 
-redirect('admin/settings.php');
+redirect('admin/printer-settings.php');

@@ -762,7 +762,7 @@ final class EpsonClient
     private function refreshAccessToken(): string
     {
         if ($this->config['refresh_token'] === '') {
-            throw new EpsonException('The printer is not linked yet. Go to Settings → Epson Connect and connect your ET-2926.');
+            throw new EpsonException('The printer is not linked yet. Go to Admin → Printer Settings and connect your ET-2926.');
         }
 
         try {
@@ -776,7 +776,7 @@ final class EpsonClient
                 set_setting('epson_access_token', '');
                 set_setting('epson_token_expires', '');
                 set_setting('epson_connected_at', '');
-                throw new EpsonException('The printer link expired. Reconnect the ET-2926 in Settings → Epson Connect.');
+                throw new EpsonException('The printer link expired. Reconnect the ET-2926 in Admin → Printer Settings.');
             }
 
             throw $e;
