@@ -49,6 +49,10 @@ $exitCode = 0;
 $messages = [];
 $errors   = [];
 
+// Set when a status check could not reach Epson and cleared by the next call
+// that gets through, so one blip does not label the whole run as unreachable.
+$transportNote = null;
+
 try {
     $epson = EpsonClient::fromSettings();
 
@@ -242,12 +246,13 @@ try {
                     // still printing, so keep the run alive and try again, but
                     // back off so a throttling Epson endpoint is not hammered.
                     $transportFailures++;
-                    $transportNote ??= 'Epson did not answer a status check; retrying.';
+                    $transportNote = 'Epson did not answer a status check; retrying.';
                     $waitFor((float) min(30, PRINT_POLL_SECONDS << min(3, $transportFailures)));
                     continue;
                 }
 
                 $transportFailures = 0;
+                $transportNote     = null;
 
                 $photoStatus  = $result['status'];
                 $isDetailsRow = ($printing['kind'] ?? 'photo') === 'details';
@@ -505,6 +510,7 @@ try {
                     $epson->jobStatus((string) $photo['epson_job_id'])
                 );
                 $checked++;
+                $transportNote = null;
                 $touchedOrders[(int) $photo['order_id']] = true;
 
                 if ($result['status'] !== $photo['status']) {
@@ -528,14 +534,14 @@ try {
                 }
             } catch (EpsonException $e) {
                 if ($e->transport) {
-                    $transportNote ??= 'Epson did not answer a status check; retrying.';
+                    $transportNote = 'Epson did not answer a status check; retrying.';
                 } else {
                     $errors[] = $e->getMessage();
                 }
             }
         }
 
-        if (isset($transportNote)) {
+        if ($transportNote !== null) {
             $messages[] = $transportNote;
         }
 
@@ -668,7 +674,7 @@ if ($errors !== []) {
 
 // A connection that never opened is not a failed run: nothing was lost and
 // the worker is retrying, so report it as a warning the dashboard can show.
-$transportTrouble = isset($transportNote);
+$transportTrouble = $transportNote !== null;
 $lastError        = implode(' ', array_unique($errors));
 
 if ($lastError === '' && $transportTrouble) {

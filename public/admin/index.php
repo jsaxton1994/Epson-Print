@@ -296,8 +296,13 @@ app_start('admin', 'dashboard', 'Dashboard', 'Photo queue, printer health and se
     <div class="banner banner-info">
         <?= icon('clock') ?>
         <div>
-            <strong>Epson is not answering; the queue is retrying</strong>
-            <p><?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'No photos were lost — the worker retries on its next run.') ?></p>
+            <strong>The last queue run could not reach Epson</strong>
+            <p>
+                <?= e($queueHealth['last_error'] !== '' ? $queueHealth['last_error'] : 'No photos were lost — the worker retries on its next run.') ?>
+                <?php if ((string) $queueHealth['last_finished'] !== ''): ?>
+                    Last run <?= e(time_ago((string) $queueHealth['last_finished'])) ?>.
+                <?php endif; ?>
+            </p>
         </div>
     </div>
 <?php elseif ($queueHealth['queued'] > 0 && !$epson->isConnected()): ?>
